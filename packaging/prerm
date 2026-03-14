@@ -1,0 +1,9 @@
+#!/bin/sh
+/etc/init.d/slqm stop 2>/dev/null
+WAN=$(uci get slqm.@slqm[0].wan_iface 2>/dev/null || echo eth0)
+tc qdisc del dev "$WAN" root 2>/dev/null
+tc qdisc del dev "$WAN" ingress 2>/dev/null
+tc qdisc del dev ifb0 root 2>/dev/null
+ip link del ifb0 2>/dev/null
+nft delete table inet slqm 2>/dev/null
+exit 0
