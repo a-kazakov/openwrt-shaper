@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>SLQM — Starlink Quota Manager</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <header>
+      <div>
+        <h1>SLQM <span>Starlink Quota Manager</span></h1>
+        <div class="ws-status">
+          <span class="ws-dot" id="ws-dot"></span>
+          <span id="ws-label">Connecting...</span>
+        </div>
+      </div>
+      <button class="config-btn" id="config-toggle" title="Configuration">
+        &#9881; Config
+      </button>
+    </header>
+
+    <!-- Stats Cards -->
+    <section class="stats-grid" id="stats-grid">
+      <div class="stat-card">
+        <div class="label">Used</div>
+        <div class="value" id="stat-used">--</div>
+        <div class="sub" id="stat-used-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Remaining</div>
+        <div class="value" id="stat-remaining">--</div>
+        <div class="sub" id="stat-remaining-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Sustained Rate</div>
+        <div class="value" id="stat-rate">--</div>
+        <div class="sub" id="stat-rate-sub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Current Throughput</div>
+        <div class="value" id="stat-throughput">--</div>
+        <div class="sub" id="stat-throughput-sub"></div>
+      </div>
+    </section>
+
+    <!-- Quota Progress Bar -->
+    <section class="quota-section">
+      <div class="quota-header">
+        <span class="title">Quota Usage</span>
+        <span class="pct" id="quota-pct">--</span>
+      </div>
+      <div class="quota-bar">
+        <div class="quota-bar-fill" id="quota-fill" style="width: 0%"></div>
+      </div>
+    </section>
+
+    <!-- Curve Chart -->
+    <section class="curve-section">
+      <div class="section-title">Rate Curve</div>
+      <div class="curve-chart" id="curve-chart">
+        <svg id="curve-svg" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
+      </div>
+    </section>
+
+    <!-- Throughput Sparkline -->
+    <section class="throughput-section">
+      <div class="section-title">Throughput (60s)</div>
+      <div class="sparkline-wrap">
+        <div class="sparkline-header">
+          <div class="rate" id="sparkline-rates">
+            <span class="down">-- down</span>
+            <span class="sep">/</span>
+            <span class="up">-- up</span>
+          </div>
+          <div class="sparkline-legend">
+            <span><span class="dot down"></span>Down</span>
+            <span><span class="dot up"></span>Up</span>
+          </div>
+        </div>
+        <div class="sparkline-chart">
+          <svg id="sparkline-svg" viewBox="0 0 600 80" preserveAspectRatio="none"></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- Device Table -->
+    <section class="device-section">
+      <div class="section-title">Devices</div>
+      <div class="device-table-wrap">
+        <table class="device-table">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Mode</th>
+              <th>Bucket</th>
+              <th>Down / Up</th>
+              <th>Session</th>
+              <th>Cycle</th>
+              <th>Turbo</th>
+            </tr>
+          </thead>
+          <tbody id="device-tbody">
+            <tr><td colspan="7" class="no-devices">Waiting for data...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Adjustments -->
+    <section class="adjust-section">
+      <div class="section-title">Adjustments</div>
+      <div class="adjust-grid">
+
+        <!-- Sync with Starlink -->
+        <div class="adjust-card">
+          <h3>Sync with Starlink</h3>
+          <p>Enter the usage shown in the Starlink app to reconcile.</p>
+          <div class="adjust-row">
+            <input type="number" id="sync-gb" placeholder="GB used" step="0.01" min="0">
+            <button class="btn-accent" id="sync-btn">Sync</button>
+          </div>
+        </div>
+
+        <!-- Manual Adjust -->
+        <div class="adjust-card">
+          <h3>Manual Adjust</h3>
+          <p>Add or subtract from the usage counter.</p>
+          <div class="adjust-row">
+            <input type="number" id="adjust-gb" placeholder="GB (+/-)" step="0.01">
+            <button class="btn-warning" id="adjust-btn">Adjust</button>
+          </div>
+        </div>
+
+        <!-- Reset Cycle -->
+        <div class="adjust-card">
+          <h3>Reset Billing Cycle</h3>
+          <p>Zero out usage and start a fresh billing cycle.</p>
+          <div class="adjust-row">
+            <button class="btn-danger" id="reset-btn">Reset Cycle</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div><!-- /.container -->
+
+  <!-- Config Panel Overlay -->
+  <div class="config-overlay" id="config-overlay"></div>
+  <div class="config-panel" id="config-panel">
+    <div class="config-panel-header">
+      <h2>Configuration</h2>
+      <button class="config-close-btn" id="config-close">&times;</button>
+    </div>
+    <div class="config-body" id="config-body">
+
+      <div class="config-group">
+        <div class="config-group-title">Quota &amp; Billing</div>
+        <div class="config-field">
+          <label for="cfg-monthly-quota-gb">Monthly Quota (GB)</label>
+          <input type="number" id="cfg-monthly-quota-gb" min="1" max="500">
+          <div class="hint">1 - 500</div>
+        </div>
+        <div class="config-field">
+          <label for="cfg-billing-reset-day">Billing Reset Day</label>
+          <input type="number" id="cfg-billing-reset-day" min="1" max="28">
+          <div class="hint">1 - 28</div>
+        </div>
+        <div class="config-field">
+          <label for="cfg-plan-cost-monthly">Plan Cost ($/month)</label>
+          <input type="number" id="cfg-plan-cost-monthly" step="0.01" min="0">
+        </div>
+        <div class="config-field">
+          <label for="cfg-overage-cost-per-gb">Overage Cost ($/GB)</label>
+          <input type="number" id="cfg-overage-cost-per-gb" step="0.01" min="0">
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">Rate Curve</div>
+        <div class="config-field">
+          <label for="cfg-max-rate-kbit">Max Rate (kbit/s)</label>
+          <input type="number" id="cfg-max-rate-kbit" min="1" max="500000">
+          <div class="hint">1 - 500,000</div>
+        </div>
+        <div class="config-field">
+          <label for="cfg-min-rate-kbit">Min Rate (kbit/s)</label>
+          <input type="number" id="cfg-min-rate-kbit" min="64" max="50000">
+          <div class="hint">64 - 50,000</div>
+        </div>
+        <div class="config-field">
+          <label for="cfg-curve-shape">Curve Shape</label>
+          <input type="number" id="cfg-curve-shape" step="0.01" min="0.10" max="2.00">
+          <div class="hint">0.10 - 2.00 (lower = more aggressive throttle)</div>
+        </div>
+        <div class="config-field">
+          <label for="cfg-down-up-ratio">Down/Up Ratio</label>
+          <input type="number" id="cfg-down-up-ratio" step="0.01" min="0.50" max="0.95">
+          <div class="hint">0.50 - 0.95 (portion allocated to download)</div>
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">Bucket / Burst</div>
+        <div class="config-field">
+          <label for="cfg-bucket-duration-sec">Bucket Duration (sec)</label>
+          <input type="number" id="cfg-bucket-duration-sec" min="30" max="900">
+          <div class="hint">30 - 900</div>
+        </div>
+        <div class="config-field">
+          <label for="cfg-burst-drain-ratio">Burst Drain Ratio</label>
+          <input type="number" id="cfg-burst-drain-ratio" step="0.01" min="0.01" max="0.50">
+          <div class="hint">0.01 - 0.50</div>
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">Network</div>
+        <div class="config-field">
+          <label for="cfg-wan-iface">WAN Interface</label>
+          <input type="text" id="cfg-wan-iface">
+        </div>
+        <div class="config-field">
+          <label for="cfg-lan-iface">LAN Interface</label>
+          <input type="text" id="cfg-lan-iface">
+        </div>
+        <div class="config-field">
+          <label for="cfg-ifb-iface">IFB Interface</label>
+          <input type="text" id="cfg-ifb-iface">
+        </div>
+        <div class="config-field">
+          <label for="cfg-dish-addr">Dish Address</label>
+          <input type="text" id="cfg-dish-addr">
+        </div>
+      </div>
+
+      <div class="config-group">
+        <div class="config-group-title">Intervals</div>
+        <div class="config-field">
+          <label for="cfg-tick-interval-sec">Tick Interval (sec)</label>
+          <input type="number" id="cfg-tick-interval-sec" min="1" max="10">
+          <div class="hint">1 - 10</div>
+        </div>
+        <div class="config-field">
+          <label for="cfg-save-interval-sec">Save Interval (sec)</label>
+          <input type="number" id="cfg-save-interval-sec" min="10" max="600">
+        </div>
+        <div class="config-field">
+          <label for="cfg-device-scan-interval-sec">Device Scan Interval (sec)</label>
+          <input type="number" id="cfg-device-scan-interval-sec" min="5" max="120">
+        </div>
+        <div class="config-field">
+          <label for="cfg-dish-poll-interval-sec">Dish Poll Interval (sec)</label>
+          <input type="number" id="cfg-dish-poll-interval-sec" min="5" max="300">
+        </div>
+      </div>
+
+    </div>
+    <div class="config-actions">
+      <button class="btn-accent" id="config-save">Save</button>
+      <button id="config-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
