@@ -87,8 +87,8 @@ type Config struct {
 func defaultValues() Values {
 	return Values{
 		NetworkMode:           "router",
-		WANIface:              "eth0",
-		LANIface:              "br-lan",
+		WANIface:              "auto",
+		LANIface:              "auto",
 		IFBIface:              "ifb0",
 		DishAddr:              "192.168.100.1:9200",
 		DishPollIntervalSec:   30,
@@ -193,4 +193,16 @@ func (c *Config) SetFilePath(path string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.filePath = path
+}
+
+// ResolveIfaces replaces "auto" WAN/LAN values with the given detected values.
+func (c *Config) ResolveIfaces(wan, lan string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.values.WANIface == "auto" && wan != "" {
+		c.values.WANIface = wan
+	}
+	if c.values.LANIface == "auto" && lan != "" {
+		c.values.LANIface = lan
+	}
 }
