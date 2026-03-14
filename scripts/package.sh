@@ -95,6 +95,7 @@ CTLEOF
 #!/bin/sh
 mkdir -p /var/lib/slqm
 /etc/init.d/slqm enable
+/etc/init.d/slqm start
 exit 0
 POSTEOF
     chmod 755 "$work/control/postinst"
