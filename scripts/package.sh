@@ -35,8 +35,8 @@ for suffix in arm64 armv7 mipsle; do
     cat > "$work/data/etc/slqm/config.json" << 'CFGEOF'
 {
   "network_mode": "router",
-  "wan_iface": "eth0",
-  "lan_iface": "br-lan",
+  "wan_iface": "auto",
+  "lan_iface": "auto",
   "ifb_iface": "ifb0",
   "dish_addr": "192.168.100.1:9200",
   "dish_poll_interval_sec": 30,

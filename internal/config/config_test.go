@@ -20,8 +20,8 @@ func TestDefault(t *testing.T) {
 	if snap.MaxRateKbit != 50000 {
 		t.Errorf("default max rate = %d, want 50000", snap.MaxRateKbit)
 	}
-	if snap.WANIface != "eth0" {
-		t.Errorf("default wan = %s, want eth0", snap.WANIface)
+	if snap.WANIface != "auto" {
+		t.Errorf("default wan = %s, want auto", snap.WANIface)
 	}
 }
 

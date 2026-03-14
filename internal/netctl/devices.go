@@ -2,12 +2,74 @@ package netctl
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/akazakov/openwrt-shaper/internal/model"
 )
+
+// DetectWANIface returns the WAN interface by finding the default route device.
+func DetectWANIface() (string, error) {
+	out, err := exec.Command("ip", "-o", "route", "show", "default").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("ip route: %w", err)
+	}
+	// Format: default via 10.0.0.1 dev eth0 ...
+	for _, field := range strings.Fields(string(out)) {
+		if field == "dev" {
+			continue
+		}
+		// The field after "dev" is the interface name
+		idx := strings.Index(string(out), "dev ")
+		if idx >= 0 {
+			rest := strings.Fields(string(out)[idx+4:])
+			if len(rest) > 0 {
+				return rest[0], nil
+			}
+		}
+		break
+	}
+	return "", fmt.Errorf("no default route found")
+}
+
+// DetectLANIface returns the LAN interface. Prefers br-lan (OpenWrt standard),
+// falls back to the first bridge, then first non-WAN non-lo interface.
+func DetectLANIface(wanIface string) (string, error) {
+	// Check for br-lan first (OpenWrt standard)
+	if _, err := os.Stat("/sys/class/net/br-lan"); err == nil {
+		return "br-lan", nil
+	}
+
+	// Look for any bridge interface
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return "", fmt.Errorf("read /sys/class/net: %w", err)
+	}
+
+	for _, e := range entries {
+		name := e.Name()
+		if name == "lo" || name == wanIface || name == "ifb0" {
+			continue
+		}
+		bridgeDir := "/sys/class/net/" + name + "/bridge"
+		if _, err := os.Stat(bridgeDir); err == nil {
+			return name, nil
+		}
+	}
+
+	// Fallback: first non-WAN, non-lo interface
+	for _, e := range entries {
+		name := e.Name()
+		if name == "lo" || name == wanIface || name == "ifb0" {
+			continue
+		}
+		return name, nil
+	}
+
+	return "", fmt.Errorf("no LAN interface found")
+}
 
 // DiscoverDevices finds LAN devices from ARP table and DHCP leases.
 func DiscoverDevices(lanIface string, staticDevices []struct{ MAC, Name string }) ([]model.Device, error) {

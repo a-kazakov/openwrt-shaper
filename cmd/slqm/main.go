@@ -17,6 +17,7 @@ import (
 	"github.com/akazakov/openwrt-shaper/internal/config"
 	"github.com/akazakov/openwrt-shaper/internal/dish"
 	"github.com/akazakov/openwrt-shaper/internal/engine"
+	"github.com/akazakov/openwrt-shaper/internal/netctl"
 	"github.com/akazakov/openwrt-shaper/internal/store"
 	"github.com/akazakov/openwrt-shaper/web"
 )
@@ -46,6 +47,30 @@ func main() {
 	cfg.SetFilePath(*configPath)
 	log.Printf("config loaded from %s", *configPath)
 
+	// Auto-detect interfaces if set to "auto"
+	snap := cfg.Snapshot()
+	if snap.WANIface == "auto" || snap.LANIface == "auto" {
+		wan, lan := snap.WANIface, snap.LANIface
+		if wan == "auto" {
+			if detected, err := netctl.DetectWANIface(); err != nil {
+				log.Printf("warning: WAN auto-detect failed: %v (falling back to eth0)", err)
+				wan = "eth0"
+			} else {
+				wan = detected
+			}
+		}
+		if lan == "auto" {
+			if detected, err := netctl.DetectLANIface(wan); err != nil {
+				log.Printf("warning: LAN auto-detect failed: %v (falling back to br-lan)", err)
+				lan = "br-lan"
+			} else {
+				lan = detected
+			}
+		}
+		cfg.ResolveIfaces(wan, lan)
+		log.Printf("interfaces: wan=%s lan=%s", wan, lan)
+	}
+
 	// Ensure database directory exists
 	if err := os.MkdirAll(filepath.Dir(*dbPath), 0755); err != nil {
 		log.Fatalf("create db dir: %v", err)
@@ -66,7 +91,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 
 	// Create dish client
-	snap := cfg.Snapshot()
+	snap = cfg.Snapshot()
 	dishClient := dish.NewClient(snap.DishAddr, snap.WANIface)
 
 	// Create engine
