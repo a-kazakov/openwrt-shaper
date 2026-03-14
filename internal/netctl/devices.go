@@ -34,6 +34,41 @@ func DetectWANIface() (string, error) {
 	return "", fmt.Errorf("no default route found")
 }
 
+// DetectLANSubnet returns the subnet of the LAN interface (e.g. "192.168.8.0/24").
+func DetectLANSubnet(lanIface string) (string, error) {
+	out, err := exec.Command("ip", "-o", "-4", "addr", "show", "dev", lanIface).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("ip addr show %s: %w", lanIface, err)
+	}
+	// Format: "2: br-lan    inet 192.168.8.1/24 brd 192.168.8.255 ..."
+	for _, field := range strings.Fields(string(out)) {
+		if strings.Contains(field, "/") && strings.Count(field, ".") == 3 {
+			// Found IP/prefix like "192.168.8.1/24", convert to network address
+			parts := strings.SplitN(field, "/", 2)
+			ip := parts[0]
+			prefix := parts[1]
+			// Zero the host bits based on the prefix to get the network address
+			octets := strings.Split(ip, ".")
+			if len(octets) == 4 {
+				// For common prefixes (8,16,24), zero the appropriate octets
+				switch prefix {
+				case "24":
+					return octets[0] + "." + octets[1] + "." + octets[2] + ".0/24", nil
+				case "16":
+					return octets[0] + "." + octets[1] + ".0.0/16", nil
+				case "8":
+					return octets[0] + ".0.0.0/8", nil
+				default:
+					// For other prefixes, return the IP/prefix as-is
+					// tc u32 will handle the masking
+					return field, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("no IPv4 address found on %s", lanIface)
+}
+
 // DetectLANIface returns the LAN interface. Prefers br-lan (OpenWrt standard),
 // falls back to the first bridge, then first non-WAN non-lo interface.
 func DetectLANIface(wanIface string) (string, error) {
