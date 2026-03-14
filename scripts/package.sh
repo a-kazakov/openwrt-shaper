@@ -84,7 +84,7 @@ Architecture: ${arch}
 Maintainer: Artem Kazakov <opensource@akazakov.net>
 Section: net
 Description: Starlink Quota Manager - smart traffic shaping with per-device byte buckets
-Depends: kmod-sched-htb, kmod-ifb, kmod-sched-ingress, nftables
+Depends: kmod-ifb, nftables
 CTLEOF
 
     # Conffiles

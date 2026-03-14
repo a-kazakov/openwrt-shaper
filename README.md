@@ -29,7 +29,7 @@ scp -O slqm_*.ipk root@192.168.8.1:/tmp/
 # SSH in and install
 ssh root@192.168.8.1
 opkg update
-opkg install kmod-sched-htb kmod-ifb kmod-sched-ingress nftables
+opkg install kmod-ifb nftables
 opkg install /tmp/slqm_*.ipk
 ```
 
@@ -117,10 +117,10 @@ All endpoints under `/api/v1/`:
 
 These are installed automatically by the `.ipk` package:
 
-- `kmod-sched-htb` — HTB qdisc for hierarchical bandwidth shaping
 - `kmod-ifb` — IFB virtual device for ingress (download) shaping
-- `kmod-sched-ingress` — ingress qdisc for WAN → IFB redirect
 - `nftables` — packet marking and per-device byte counters
+
+HTB and ingress qdiscs are typically built into the kernel on GL.iNet firmware.
 
 ## License
 
