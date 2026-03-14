@@ -6,7 +6,10 @@ import (
 )
 
 // SetupIFB creates the IFB device and redirects WAN ingress through it.
-func SetupIFB(wanIface, ifbIface string) error {
+// lanSubnet scopes the redirect to only packets destined for LAN clients
+// (e.g. "192.168.8.0/24"), preventing router-local traffic from being shaped.
+// If lanSubnet is empty, falls back to matching all RFC1918 ranges.
+func SetupIFB(wanIface, ifbIface, lanSubnet string) error {
 	// Tear down any existing IFB first (idempotent)
 	TeardownIFB(wanIface, ifbIface)
 
@@ -23,11 +26,20 @@ func SetupIFB(wanIface, ifbIface string) error {
 		return fmt.Errorf("add ingress qdisc: %w", err)
 	}
 
-	// Redirect all WAN ingress to IFB
-	if err := run("tc", "filter", "add", "dev", wanIface, "parent", "ffff:", "protocol", "ip",
-		"u32", "match", "u32", "0", "0",
-		"action", "mirred", "egress", "redirect", "dev", ifbIface); err != nil {
-		return fmt.Errorf("add mirred redirect: %w", err)
+	// Redirect only LAN-destined WAN ingress to IFB.
+	// Using "u32 match u32 0 0" (match-all) breaks router-local services
+	// because it also redirects packets destined for the router itself.
+	subnets := []string{lanSubnet}
+	if lanSubnet == "" {
+		// Fallback: match all RFC1918 private ranges
+		subnets = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	}
+	for _, subnet := range subnets {
+		if err := run("tc", "filter", "add", "dev", wanIface, "parent", "ffff:", "protocol", "ip",
+			"u32", "match", "ip", "dst", subnet,
+			"action", "mirred", "egress", "redirect", "dev", ifbIface); err != nil {
+			return fmt.Errorf("add mirred redirect for %s: %w", subnet, err)
+		}
 	}
 
 	return nil

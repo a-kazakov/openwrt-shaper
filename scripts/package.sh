@@ -68,6 +68,7 @@ start_service() {
     procd_open_instance
     procd_set_param command /usr/bin/slqm -config /etc/slqm/config.json
     procd_set_param respawn 3600 5 5
+    procd_set_param term_timeout 5
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_set_param file /etc/slqm/config.json
@@ -95,6 +96,7 @@ CTLEOF
 #!/bin/sh
 mkdir -p /var/lib/slqm
 /etc/init.d/slqm enable
+/etc/init.d/slqm start
 exit 0
 POSTEOF
     chmod 755 "$work/control/postinst"
@@ -103,7 +105,11 @@ POSTEOF
     cat > "$work/control/prerm" << 'PRERMEOF'
 #!/bin/sh
 /etc/init.d/slqm stop 2>/dev/null
-WAN=$(uci get slqm.@slqm[0].wan_iface 2>/dev/null || echo eth0)
+# Wait for Go signal handler to clean up
+sleep 1
+# Fallback cleanup in case the process didn't clean up properly
+WAN=$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+[ -z "$WAN" ] && WAN="eth0"
 tc qdisc del dev "$WAN" root 2>/dev/null
 tc qdisc del dev "$WAN" ingress 2>/dev/null
 tc qdisc del dev ifb0 root 2>/dev/null

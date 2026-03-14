@@ -111,8 +111,16 @@ func New(cfg *config.Config, st *store.Store, dishClient *dish.Client) *Engine {
 func (e *Engine) Setup() error {
 	snap := e.cfg.Snapshot()
 
-	// Setup IFB
-	if err := netctl.SetupIFB(snap.WANIface, snap.IFBIface); err != nil {
+	// Detect LAN subnet for scoping IFB redirect
+	lanSubnet, err := netctl.DetectLANSubnet(snap.LANIface)
+	if err != nil {
+		log.Printf("warning: LAN subnet detection failed: %v (using RFC1918 fallback)", err)
+	} else {
+		log.Printf("engine: LAN subnet=%s", lanSubnet)
+	}
+
+	// Setup IFB — only redirect LAN-destined traffic, not router-local
+	if err := netctl.SetupIFB(snap.WANIface, snap.IFBIface, lanSubnet); err != nil {
 		return fmt.Errorf("setup ifb: %w", err)
 	}
 

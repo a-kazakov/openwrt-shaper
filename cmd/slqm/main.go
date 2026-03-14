@@ -133,7 +133,11 @@ func main() {
 	stopWS := make(chan struct{})
 	go hub.Run(stopWS)
 
-	go eng.Run(ctx)
+	engineDone := make(chan struct{})
+	go func() {
+		eng.Run(ctx)
+		close(engineDone)
+	}()
 
 	// Start dish poller
 	dishInterval := time.Duration(snap.DishPollIntervalSec) * time.Second
@@ -143,14 +147,23 @@ func main() {
 	sig := <-sigCh
 	log.Printf("received signal %v, shutting down", sig)
 
+	// Cancel engine context — triggers engine.shutdown() which cleans up
+	// tc, nftables, and IFB. Wait for it to complete before proceeding.
+	cancel()
+
+	// Wait for engine cleanup with a timeout (procd sends SIGKILL after ~5s)
+	select {
+	case <-engineDone:
+		log.Println("engine cleanup complete")
+	case <-time.After(3 * time.Second):
+		log.Println("engine cleanup timed out")
+	}
+
 	// Stop WebSocket hub
 	close(stopWS)
 
-	// Cancel engine context
-	cancel()
-
 	// Shutdown HTTP server
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	server.Shutdown(shutdownCtx)
 
