@@ -80,7 +80,7 @@ func New(cfg *config.Config, st *store.Store, dishClient *dish.Client) *Engine {
 		},
 		billing: BillingCycle{ResetDay: snap.BillingResetDay},
 		devices: make(map[string]*DeviceState),
-		tc:      netctl.NewTCController(snap.WANIface, snap.IFBIface, snap.MinRateKbit),
+		tc:      netctl.NewTCController(snap.WANIface, snap.LANIface, snap.MinRateKbit),
 		nft:     netctl.NewNFTController(snap.WANIface),
 	}
 
@@ -107,36 +107,32 @@ func New(cfg *config.Config, st *store.Store, dishClient *dish.Client) *Engine {
 	return e
 }
 
-// Setup initializes IFB, nftables, and tc trees.
+// Setup initializes nftables and tc trees on WAN (upload) and LAN (download).
+// No IFB device is used — download shaping happens on the LAN interface egress
+// where nftables marks are already set by the forward hook.
 func (e *Engine) Setup() error {
 	snap := e.cfg.Snapshot()
 
-	// Detect LAN subnet for scoping IFB redirect
-	lanSubnet, err := netctl.DetectLANSubnet(snap.LANIface)
-	if err != nil {
-		log.Printf("warning: LAN subnet detection failed: %v (using RFC1918 fallback)", err)
-	} else {
-		log.Printf("engine: LAN subnet=%s", lanSubnet)
-	}
+	log.Printf("engine: wan=%s lan=%s", snap.WANIface, snap.LANIface)
 
-	// Setup IFB — only redirect LAN-destined traffic, not router-local
-	if err := netctl.SetupIFB(snap.WANIface, snap.IFBIface, lanSubnet); err != nil {
-		return fmt.Errorf("setup ifb: %w", err)
-	}
+	// Clean up any leftover IFB from previous versions
+	netctl.TeardownIFB(snap.WANIface, snap.IFBIface)
 
 	// Setup nftables
 	if err := e.nft.Setup(); err != nil {
 		return fmt.Errorf("setup nftables: %w", err)
 	}
+	log.Printf("engine: nftables table inet slqm created")
 
 	// Compute initial curve rate
 	remaining := e.curve.TotalBytes - e.monthUsed
 	rateKbit := e.curve.Rate(remaining)
 
-	// Setup HTB trees
+	// Setup HTB trees: WAN egress for upload, LAN egress for download
 	if err := e.tc.SetupHTB(rateKbit); err != nil {
 		return fmt.Errorf("setup htb: %w", err)
 	}
+	log.Printf("engine: HTB trees created on %s (upload) and %s (download)", snap.WANIface, snap.LANIface)
 
 	log.Printf("engine: setup complete, curve rate=%d kbit/s, used=%d bytes", rateKbit, e.monthUsed)
 	return nil
@@ -457,9 +453,13 @@ func (e *Engine) shutdown() {
 	e.persist()
 
 	snap := e.cfg.Snapshot()
+	log.Println("engine: tearing down tc qdiscs")
 	e.tc.Teardown()
+	log.Println("engine: tearing down nftables")
 	e.nft.Teardown()
+	// Clean up IFB in case of leftover from previous version
 	netctl.TeardownIFB(snap.WANIface, snap.IFBIface)
+	log.Println("engine: cleanup complete")
 }
 
 func (e *Engine) updateSnapshot() {

@@ -16,7 +16,7 @@ sustained_rate = min_rate + (max_rate - min_rate) × (remaining / total) ^ shape
 
 Each device gets a token bucket whose capacity shrinks with the curve. When a device has tokens, it can burst (up to a ceiling proportional to its remaining tokens). When tokens are depleted, it gets a fair share of the curve rate. This happens independently per device — one passenger streaming doesn't starve the pilot's EFB.
 
-Both upload and download count toward the quota (matching Starlink's metering). Download shaping uses an IFB device to convert ingress into shapeable egress.
+Both upload and download count toward the quota (matching Starlink's metering). Upload is shaped on the WAN interface egress, download is shaped on the LAN interface egress (where nftables marks are already applied).
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ scp -O slqm_*.ipk root@192.168.8.1:/tmp/
 # SSH in and install
 ssh root@192.168.8.1
 opkg update
-opkg install kmod-ifb nftables
+opkg install nftables
 opkg install /tmp/slqm_*.ipk
 ```
 
@@ -117,10 +117,9 @@ All endpoints under `/api/v1/`:
 
 These are installed automatically by the `.ipk` package:
 
-- `kmod-ifb` — IFB virtual device for ingress (download) shaping
 - `nftables` — packet marking and per-device byte counters
 
-HTB and ingress qdiscs are typically built into the kernel on GL.iNet firmware.
+HTB qdiscs are typically built into the kernel on GL.iNet firmware.
 
 ## License
 

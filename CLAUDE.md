@@ -32,13 +32,13 @@ nftables counters → compute per-device byte deltas (up+down combined)
   → recompute curve rate from remaining quota
   → refill buckets (shared pool / non-full device count)
   → evaluate mode per device (hysteresis: burst ↔ sustained)
-  → update tc HTB classes on WAN (upload) + IFB (download)
+  → update tc HTB classes on WAN (upload) + LAN (download)
   → broadcast state snapshot via WebSocket
 ```
 
 ### Dual-Tree Shaping
 
-Linux tc only shapes egress. Download shaping uses an IFB (Intermediate Functional Block) device: WAN ingress is redirected to IFB egress via mirred, then shaped by a second HTB tree. Both trees use the same slot/mark numbering. nftables marks packets by IP in two chains (upload by src IP, download by dst IP) with the same mark value, routing to mirrored tc classes.
+Linux tc only shapes egress. Upload shaping uses an HTB tree on the WAN interface. Download shaping uses an HTB tree on the LAN interface (br-lan), where forwarded packets have already been marked by nftables. The LAN tree has a high-rate root (1 Gbps) with an unmatched default class for local/inter-LAN traffic, and a rate-limited download parent class (1:3) at the curve rate containing per-device classes. nftables marks packets by IP in two chains (upload by src IP, download by dst IP) with the same mark value, routing to the corresponding tc classes.
 
 ### Device Modes
 
