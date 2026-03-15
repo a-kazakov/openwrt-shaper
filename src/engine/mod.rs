@@ -567,7 +567,7 @@ impl Engine {
                     session_up: 0,
                     session_down: 0,
                     cycle_bytes: 0,
-                    last_mode: crate::model::DeviceMode::Burst,
+                    last_mode: crate::model::DeviceMode::Sustained,
                     last_burst_ceil: 0,
                 };
 
@@ -684,6 +684,16 @@ impl Engine {
             0
         };
 
+        // Compute per-device refill rate
+        let curve_rate_bps = inner.curve.rate_bytes_per_sec(remaining);
+        let non_full_count = inner
+            .devices
+            .values()
+            .filter(|d| !d.bucket.is_full())
+            .count()
+            .max(1) as i64;
+        let refill_bps_per_device = curve_rate_bps / non_full_count;
+
         let mut devices = Vec::with_capacity(inner.devices.len());
         for dev in inner.devices.values() {
             let bucket_cap = dev.bucket.capacity();
@@ -692,6 +702,13 @@ impl Engine {
                 (bucket_tokens * 100 / bucket_cap) as i32
             } else {
                 0
+            };
+
+            // Refill rate: if this device's bucket is full, it gets 0
+            let bucket_refill_bps = if dev.bucket.is_full() {
+                0
+            } else {
+                refill_bps_per_device
             };
 
             let mut ds = DeviceSnapshot {
@@ -712,6 +729,7 @@ impl Engine {
                 turbo: dev.turbo.active,
                 turbo_expires: None,
                 turbo_bytes: dev.turbo.bytes_used,
+                bucket_refill_bps,
                 shaped_down_kbit: None,
                 shaped_up_kbit: None,
             };
