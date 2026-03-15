@@ -32,6 +32,7 @@ interface Props {
   onMessage: (text: string, type: "success" | "error" | "info") => void;
 }
 
+// UI uses "throttled" instead of backend's "sustained" for user clarity
 function modeLabel(mode: string): string {
   return mode === "sustained" ? "throttled" : mode;
 }
@@ -85,6 +86,9 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
   const shapePct = thresholdPct(device.bucket_shape_at, device.bucket_capacity);
   const unshapePct = thresholdPct(device.bucket_unshape_at, device.bucket_capacity);
 
+  // Hysteresis marks: in burst mode show throttle threshold (black),
+  // in sustained mode show burst threshold (white). Dead zone between
+  // the two thresholds prevents mode flapping.
   const showMark = device.mode !== "turbo";
   const markPct = device.mode === "burst" ? shapePct : unshapePct;
   const markColor = device.mode === "burst" ? "#000000" : "#ffffff";
