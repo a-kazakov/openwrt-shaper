@@ -1,40 +1,39 @@
-VERSION := $(shell git describe --tags --always 2>/dev/null || echo "dev")
-LDFLAGS := -s -w -X main.version=$(VERSION)
 BINARY := slqm
 
-.PHONY: all build clean test lint
+.PHONY: all build clean test lint build-all package
 
 all: build
 
 build:
-	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o dist/$(BINARY) ./cmd/slqm
+	cargo build --release
+	mkdir -p dist
+	cp target/release/$(BINARY) dist/$(BINARY)
 
-# Cross-compilation targets
+# Cross-compilation targets (requires `cross` tool: cargo install cross)
 build-arm64:
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-		go build -ldflags="$(LDFLAGS)" -o dist/$(BINARY)-arm64 ./cmd/slqm
+	cross build --target aarch64-unknown-linux-musl --release
+	mkdir -p dist
+	cp target/aarch64-unknown-linux-musl/release/$(BINARY) dist/$(BINARY)-arm64
 
 build-armv7:
-	GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-		go build -ldflags="$(LDFLAGS)" -o dist/$(BINARY)-armv7 ./cmd/slqm
+	cross build --target armv7-unknown-linux-musleabihf --release
+	mkdir -p dist
+	cp target/armv7-unknown-linux-musleabihf/release/$(BINARY) dist/$(BINARY)-armv7
 
-build-mipsle:
-	GOOS=linux GOARCH=mipsle GOMIPS=softfloat CGO_ENABLED=0 \
-		go build -ldflags="$(LDFLAGS)" -o dist/$(BINARY)-mipsle ./cmd/slqm
-
-build-all: build-arm64 build-armv7 build-mipsle
+build-all: build-arm64 build-armv7
 
 test:
-	go test -v -race ./...
+	cargo test
 
 test-cover:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
+	cargo test
+	@echo "Note: use cargo-llvm-cov for coverage reports"
 
 lint:
-	go vet ./...
+	cargo clippy -- -D warnings
 
 clean:
+	cargo clean
 	rm -rf dist/ coverage.out coverage.html
 
 # Package for opkg

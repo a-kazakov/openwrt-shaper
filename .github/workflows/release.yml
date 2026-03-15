@@ -13,15 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Vet
-        run: go vet ./...
+      - name: Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Test
-        run: go test -race ./...
+        run: cargo test
 
   release:
     runs-on: ubuntu-latest
@@ -31,41 +29,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Set version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build all targets
         run: |
-          VERSION=${{ github.ref_name }}
-          LDFLAGS="-s -w -X main.version=${VERSION}"
           mkdir -p dist
 
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-            go build -ldflags="$LDFLAGS" -o dist/slqm-arm64 ./cmd/slqm
+          cross build --target aarch64-unknown-linux-musl --release
+          cp target/aarch64-unknown-linux-musl/release/slqm dist/slqm-arm64
 
-          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-            go build -ldflags="$LDFLAGS" -o dist/slqm-armv7 ./cmd/slqm
-
-          GOOS=linux GOARCH=mipsle GOMIPS=softfloat CGO_ENABLED=0 \
-            go build -ldflags="$LDFLAGS" -o dist/slqm-mipsle ./cmd/slqm
+          cross build --target armv7-unknown-linux-musleabihf --release
+          cp target/armv7-unknown-linux-musleabihf/release/slqm dist/slqm-armv7
 
       - name: Package ipk files
         run: ./scripts/package.sh
-
-      - name: Build Rust IPv4 test binary
-        if: hashFiles('poc-rust/Cargo.toml') != ''
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq gcc-aarch64-linux-gnu
-          rustup target add aarch64-unknown-linux-musl
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
-            cargo build --manifest-path poc-rust/Cargo.toml \
-            --target aarch64-unknown-linux-musl --release
-          cp poc-rust/target/aarch64-unknown-linux-musl/release/ipv4test dist/ipv4test-arm64
 
       - name: Generate checksums
         run: |
@@ -81,7 +61,5 @@ jobs:
           files: |
             dist/slqm-arm64
             dist/slqm-armv7
-            dist/slqm-mipsle
-            dist/ipv4test-arm64
             dist/pkg/*.ipk
             dist/checksums.txt

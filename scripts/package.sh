@@ -9,10 +9,9 @@ PKG_DIR="dist/pkg"
 declare -A ARCH_MAP=(
     ["arm64"]="aarch64_cortex-a53"
     ["armv7"]="arm_cortex-a7_neon-vfpv4"
-    ["mipsle"]="mipsel_24kc"
 )
 
-for suffix in arm64 armv7 mipsle; do
+for suffix in arm64 armv7; do
     binary="dist/slqm-${suffix}"
     [ -f "$binary" ] || continue
 
@@ -66,7 +65,7 @@ USE_PROCD=1
 
 start_service() {
     procd_open_instance
-    procd_set_param command /usr/bin/slqm -config /etc/slqm/config.json
+    procd_set_param command /usr/bin/slqm --config /etc/slqm/config.json
     procd_set_param respawn 3600 5 5
     procd_set_param term_timeout 5
     procd_set_param stdout 1
@@ -105,7 +104,7 @@ POSTEOF
     cat > "$work/control/prerm" << 'PRERMEOF'
 #!/bin/sh
 /etc/init.d/slqm stop 2>/dev/null
-# Wait for Go signal handler to clean up
+# Wait for signal handler to clean up
 sleep 1
 # Fallback cleanup in case the process didn't clean up properly
 WAN=$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)

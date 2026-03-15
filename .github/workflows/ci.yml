@@ -12,47 +12,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Vet
-        run: go vet ./...
+      - name: Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+        run: cargo test
 
       - name: Build
-        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o /dev/null ./cmd/slqm
+        run: cargo build --release
 
   cross-compile:
     runs-on: ubuntu-latest
     needs: test
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - goos: linux
-            goarch: arm64
+          - target: aarch64-unknown-linux-musl
             suffix: arm64
-          - goos: linux
-            goarch: arm
-            goarm: "7"
+          - target: armv7-unknown-linux-musleabihf
             suffix: armv7
-          - goos: linux
-            goarch: mipsle
-            suffix: mipsle
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build ${{ matrix.suffix }}
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm }}
-          GOMIPS: ${{ matrix.goarch == 'mipsle' && 'softfloat' || '' }}
-          CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w" -o /dev/null ./cmd/slqm
+        run: cross build --target ${{ matrix.target }} --release
