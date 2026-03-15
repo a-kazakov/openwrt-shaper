@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button, Card, Spin } from "antd";
 import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
-import { formatBytes, formatRate, formatDuration, formatMB } from "../utils";
+import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound } from "../utils";
 import { enableTurbo, cancelTurbo } from "../api";
 
 interface Props {
@@ -216,8 +216,8 @@ function DeviceCard({
           marginBottom: 10,
         }}
       >
-        <div>
-          <div style={{ color: "#fff", fontWeight: 500, fontSize: 15 }}>{name}</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ color: "#fff", fontWeight: 500, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
           <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{device.mac}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -265,31 +265,22 @@ function DeviceCard({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "6px 16px",
+          gridTemplateColumns: "30% 30% 40%",
           fontSize: 12,
+          color: "#999",
         }}
       >
-        <div>
-          <span style={{ color: "#555" }}>Down </span>
-          <span style={{ color: "#60a5fa" }}>
-            {formatRate(device.rate_down_bps)}
-          </span>
-        </div>
-        <div>
-          <span style={{ color: "#555" }}>Up </span>
-          <span style={{ color: "#4ade80" }}>
-            {formatRate(device.rate_up_bps)}
-          </span>
-        </div>
-        <div>
-          <span style={{ color: "#555" }}>Session </span>
-          <span style={{ color: "#999" }}>{formatBytes(device.session_bytes)}</span>
-        </div>
-        <div>
-          <span style={{ color: "#555" }}>Cycle </span>
-          <span style={{ color: "#999" }}>{formatBytes(device.cycle_bytes)}</span>
-        </div>
+        <span>
+          <span style={{ color: "#4ade80" }}>&#9650;</span>{" "}
+          {formatRateRound(device.rate_up_bps)}
+        </span>
+        <span>
+          <span style={{ color: "#60a5fa" }}>&#9660;</span>{" "}
+          {formatRateRound(device.rate_down_bps)}
+        </span>
+        <span>
+          &#8721; {formatBytesRound(device.session_bytes)} / {formatBytesRound(device.cycle_bytes)}
+        </span>
       </div>
     </Card>
   );

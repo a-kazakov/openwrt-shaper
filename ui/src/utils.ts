@@ -27,6 +27,24 @@ export function formatMB(bytes: number): string {
   return mb + " MB";
 }
 
+/** Bytes rounded to nearest unit, no decimals, starting at KB. */
+export function formatBytesRound(b: number | null | undefined): string {
+  if (b == null) return "--";
+  const abs = Math.abs(b);
+  if (abs < 1048576) return Math.round(b / 1024) + " KB";
+  if (abs < 1073741824) return Math.round(b / 1048576) + " MB";
+  return Math.round(b / 1073741824) + " GB";
+}
+
+/** Bits/sec rounded to nearest unit, no decimals, starting at Kbps. */
+export function formatRateRound(bps: number | null | undefined): string {
+  if (bps == null) return "--";
+  const abs = Math.abs(bps);
+  if (abs < 1000000) return Math.round(bps / 1000) + " Kb/s";
+  if (abs < 1000000000) return Math.round(bps / 1000000) + " Mb/s";
+  return Math.round(bps / 1000000000) + " Gb/s";
+}
+
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || seconds <= 0) return "--";
   const d = Math.floor(seconds / 86400);
