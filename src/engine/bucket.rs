@@ -47,7 +47,7 @@ impl DeviceBucket {
         }
 
         let burst_bytes_per_sec =
-            self.tokens as f64 * burst_drain_ratio / tick_sec as f64;
+            self.capacity as f64 * burst_drain_ratio / tick_sec as f64;
         self.burst_ceil_kbit = (burst_bytes_per_sec * 8.0 / 1000.0) as i32;
         if self.burst_ceil_kbit < 1000 {
             self.burst_ceil_kbit = 1000;
@@ -248,26 +248,25 @@ mod tests {
     #[test]
     fn burst_ceil() {
         // 50 Mbps = 6250000 bytes/sec, 300s, tick=2s, drain_ratio=0.10
+        // capacity = 1875 MB, burst = capacity * 0.10 / 2 = 93.75 MB/s = 750 Mbps = 750000 kbit
         let mut b = full_bucket(6_250_000, 300);
         b.update(6_250_000, 300, 2, 0.10);
 
         let ceil = b.burst_ceil_kbit();
-        // At full: tokens=1875MB, burst = 1875MB * 0.10 / 2 = 93.75 MB/s = 750 Mbps = 750000 kbit
         assert!(
             ceil >= 700_000 && ceil <= 800_000,
             "full bucket burst ceil = {ceil} kbit, want ~750000"
         );
 
-        // Drain to small bucket
+        // Burst ceil depends on capacity, not tokens — draining doesn't change it
         b.drain(b.tokens());
-        b.refill(56 * 1_048_576); // 56 MB
+        b.refill(56 * 1_048_576); // 56 MB (partially filled)
         b.update(6_250_000, 300, 2, 0.10);
 
         let ceil = b.burst_ceil_kbit();
-        // 56MB * 0.10 / 2 = 2.8 MB/s = ~22.4 Mbps = ~22400 kbit
         assert!(
-            ceil >= 20_000 && ceil <= 25_000,
-            "small bucket burst ceil = {ceil} kbit, want ~22400"
+            ceil >= 700_000 && ceil <= 800_000,
+            "partially filled burst ceil = {ceil} kbit, should still be ~750000"
         );
     }
 
