@@ -1,12 +1,76 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Drawer, Form, InputNumber, Input, Button, Slider, Spin, Divider } from "antd";
+import { MinusOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ConfigValues } from "../types";
 import { getConfig, updateConfig } from "../api";
+import { arcLengthCurvePoints } from "../curvePoints";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSaved: (config: ConfigValues) => void;
+}
+
+/** Slider with +/- buttons for fine adjustment. */
+function SliderRow({
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  tipFormatter,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  tipFormatter?: (v: number | undefined) => string;
+}) {
+  const nudge = (delta: number) => {
+    const next = Math.round((value + delta) * 1000) / 1000; // avoid float drift
+    onChange(Math.max(min, Math.min(max, next)));
+  };
+
+  const btnStyle: React.CSSProperties = {
+    width: 36,
+    height: 36,
+    minWidth: 36,
+    padding: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <Button
+        size="small"
+        icon={<MinusOutlined />}
+        onClick={() => nudge(-step)}
+        disabled={value <= min}
+        style={btnStyle}
+      />
+      <div style={{ flex: 1 }}>
+        <Slider
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={onChange}
+          tooltip={{ formatter: tipFormatter }}
+        />
+      </div>
+      <Button
+        size="small"
+        icon={<PlusOutlined />}
+        onClick={() => nudge(step)}
+        disabled={value >= max}
+        style={btnStyle}
+      />
+    </div>
+  );
 }
 
 /** Mini curve preview canvas. */
@@ -39,35 +103,18 @@ function CurvePreview({
     const pw = w - pad * 2;
     const ph = h - pad * 2;
 
-    // Curve area
+    const pts = arcLengthCurvePoints(shape, minKbit, maxKbit, pad, pad, pw, ph, 100);
+
     ctx.beginPath();
-    const steps = 100;
-    for (let i = 0; i <= steps; i++) {
-      const ratio = i / steps;
-      const curved = Math.pow(ratio, shape);
-      const rate = minKbit + (maxKbit - minKbit) * curved;
-      const x = pad + (1 - ratio) * pw;
-      const y = pad + ph - (rate / maxKbit) * ph;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.lineTo(pad, pad + ph);
     ctx.lineTo(pad + pw, pad + ph);
     ctx.closePath();
     ctx.fillStyle = "rgba(255,255,255,0.06)";
     ctx.fill();
 
-    // Curve line
     ctx.beginPath();
-    for (let i = 0; i <= steps; i++) {
-      const ratio = i / steps;
-      const curved = Math.pow(ratio, shape);
-      const rate = minKbit + (maxKbit - minKbit) * curved;
-      const x = pad + (1 - ratio) * pw;
-      const y = pad + ph - (rate / maxKbit) * ph;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
     ctx.lineWidth = 2;
     ctx.stroke();
@@ -104,14 +151,32 @@ const derivStyle: React.CSSProperties = {
   padding: "4px 0",
 };
 
+// CSS to enlarge slider handle and disable text selection
+const drawerCSS = `
+  .config-drawer { user-select: none; -webkit-user-select: none; }
+  .config-drawer .ant-slider-handle::after {
+    width: 20px !important;
+    height: 20px !important;
+    inset-inline-start: -5px !important;
+    inset-block-start: -5px !important;
+  }
+  .config-drawer .ant-slider-rail,
+  .config-drawer .ant-slider-track {
+    height: 8px !important;
+  }
+  .config-drawer .ant-slider {
+    padding-block: 8px !important;
+  }
+`;
+
 export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const [maxKbit, setMaxKbit] = useState(50000);
-  const [minKbit, setMinKbit] = useState(1000);
+  const [maxMbit, setMaxMbit] = useState(50);
+  const [minMbit, setMinMbit] = useState(1);
   const [curveShape, setCurveShape] = useState(0.4);
   const [quotaGb, setQuotaGb] = useState(20);
 
@@ -120,18 +185,30 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
     setLoading(true);
     getConfig()
       .then((cfg) => {
+        const maxM = cfg.max_rate_kbit / 1000;
+        const minM = cfg.min_rate_kbit / 1000;
         form.setFieldsValue({
           ...cfg,
-          max_rate_mbit: cfg.max_rate_kbit / 1000,
-          min_rate_mbit: cfg.min_rate_kbit / 1000,
+          max_rate_mbit: maxM,
+          min_rate_mbit: minM,
         });
-        setMaxKbit(cfg.max_rate_kbit);
-        setMinKbit(cfg.min_rate_kbit);
+        setMaxMbit(maxM);
+        setMinMbit(minM);
         setCurveShape(cfg.curve_shape);
         setQuotaGb(cfg.monthly_quota_gb);
       })
       .finally(() => setLoading(false));
   }, [open, form]);
+
+  // Lock page scroll when drawer is open
+  useEffect(() => {
+    if (open) {
+      document.documentElement.style.overflow = "hidden";
+    } else {
+      document.documentElement.style.overflow = "";
+    }
+    return () => { document.documentElement.style.overflow = ""; };
+  }, [open]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -156,7 +233,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
     }
   };
 
-  const maxBytesPerSec = (maxKbit * 1000) / 8;
+  const maxBytesPerSec = (maxMbit * 1000 * 1000) / 8;
   const quotaBytes = quotaGb * 1073741824;
   const burnHours = maxBytesPerSec > 0 ? quotaBytes / maxBytesPerSec / 3600 : 0;
   const burnLabel =
@@ -166,7 +243,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
         ? `${burnHours.toFixed(1)}h`
         : `${(burnHours / 24).toFixed(1)}d`;
 
-  const minBytesPerSec = (minKbit * 1000) / 8;
+  const minBytesPerSec = (minMbit * 1000 * 1000) / 8;
   const gbPerHrAtMin = (minBytesPerSec * 3600) / 1073741824;
 
   return (
@@ -176,9 +253,11 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
       width={Math.min(420, window.innerWidth)}
       onClose={onClose}
       open={open}
+      rootClassName="config-drawer"
       styles={{
         body: { paddingBottom: 80, background: "#111" },
         header: { background: "#111", borderBottom: "1px solid #222" },
+        mask: { background: "rgba(0, 0, 0, 0.7)" },
       }}
       footer={
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -197,6 +276,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
         </div>
       }
     >
+      <style>{drawerCSS}</style>
       {loading ? (
         <div style={{ textAlign: "center", padding: 40 }}>
           <Spin />
@@ -231,48 +311,48 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
           </Divider>
 
           <Form.Item
-            label={`Max Rate: ${maxKbit / 1000} Mbps`}
-            name="max_rate_mbit"
-            tooltip="Speed limit when quota is nearly full. This is the ceiling at the start of the billing cycle."
+            label={`Max Rate: ${maxMbit} Mbps`}
+            tooltip="Maximum allowed speed at the start of the billing cycle when most quota remains unused."
           >
-            <Slider
+            <SliderRow
+              value={maxMbit}
               min={1}
               max={100}
               step={1}
-              onChange={(v) => setMaxKbit(v * 1000)}
-              tooltip={{ formatter: (v) => `${v} Mbps` }}
+              onChange={(v) => { setMaxMbit(v); form.setFieldValue("max_rate_mbit", v); }}
+              tipFormatter={(v) => `${v} Mbps`}
             />
           </Form.Item>
 
           <Form.Item
-            label={`Min Rate: ${(minKbit / 1000).toFixed(1)} Mbps`}
-            name="min_rate_mbit"
+            label={`Min Rate: ${minMbit.toFixed(1)} Mbps`}
             tooltip="Floor speed when quota is nearly exhausted. Traffic will never be shaped below this rate."
           >
-            <Slider
+            <SliderRow
+              value={minMbit}
               min={0.1}
               max={10}
               step={0.1}
-              onChange={(v) => setMinKbit(v * 1000)}
-              tooltip={{ formatter: (v) => `${v} Mbps` }}
+              onChange={(v) => { setMinMbit(v); form.setFieldValue("min_rate_mbit", v); }}
+              tipFormatter={(v) => `${v} Mbps`}
             />
           </Form.Item>
 
           <Form.Item
             label={`Curve Shape: ${curveShape.toFixed(2)}`}
-            name="curve_shape"
             tooltip="Controls how aggressively speed drops as quota depletes. Lower values throttle earlier; higher values maintain speed longer before a steep drop."
           >
-            <Slider
+            <SliderRow
+              value={curveShape}
               min={0.1}
               max={2.0}
               step={0.01}
-              onChange={(v) => setCurveShape(v)}
-              tooltip={{ formatter: (v) => `${v?.toFixed(2)}` }}
+              onChange={(v) => { setCurveShape(v); form.setFieldValue("curve_shape", v); }}
+              tipFormatter={(v) => `${v?.toFixed(2)}`}
             />
           </Form.Item>
 
-          <CurvePreview shape={curveShape} maxKbit={maxKbit} minKbit={minKbit} />
+          <CurvePreview shape={curveShape} maxKbit={maxMbit * 1000} minKbit={minMbit * 1000} />
 
           <div style={{ marginTop: 12, marginBottom: 8 }}>
             <div style={derivStyle}>
@@ -284,19 +364,6 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
               <span style={{ color: "#fff" }}>{gbPerHrAtMin.toFixed(2)} GB/hr</span>
             </div>
           </div>
-
-          <Form.Item
-            label="Down/Up Ratio"
-            name="down_up_ratio"
-            tooltip="How the sustained rate is split between download and upload. 0.80 = 80% download, 20% upload."
-          >
-            <InputNumber
-              min={0.5}
-              max={0.95}
-              step={0.01}
-              style={{ width: "100%" }}
-            />
-          </Form.Item>
 
           <div style={{ marginTop: 16 }}>
             <Button
@@ -311,10 +378,22 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
           {showAdvanced && (
             <>
               <Divider orientation="left" style={{ color: "#666", fontSize: 12 }}>
-                Bucket / Burst
+                Shaping
               </Divider>
               <Form.Item
-                label="Bucket Duration (sec)"
+                label="Down/Up Ratio"
+                name="down_up_ratio"
+                tooltip="How the throttled rate is split between download and upload. 0.80 = 80% download, 20% upload."
+              >
+                <InputNumber
+                  min={0.5}
+                  max={0.95}
+                  step={0.01}
+                  style={{ width: "100%" }}
+                />
+              </Form.Item>
+              <Form.Item
+                label="Burst Budget Duration (sec)"
                 name="bucket_duration_sec"
                 tooltip="How many seconds of curve-rate bandwidth each device can store. Longer = bigger burst buffer before throttling kicks in."
               >
@@ -323,7 +402,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
               <Form.Item
                 label="Burst Drain Ratio"
                 name="burst_drain_ratio"
-                tooltip="Fraction of the bucket drained per tick to set the burst ceiling. Higher = faster bursts but shorter burst duration."
+                tooltip="Fraction of the burst budget drained per tick to set the burst ceiling. Higher = faster bursts but shorter burst duration."
               >
                 <InputNumber min={0.01} max={0.5} step={0.01} style={{ width: "100%" }} />
               </Form.Item>

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { CurveState, QuotaState, ConfigValues } from "../types";
 import { formatRateKbit } from "../utils";
+import { arcLengthCurvePoints } from "../curvePoints";
 
 interface Props {
   curve: CurveState;
@@ -61,20 +62,12 @@ export default function CurveChart({ curve, quota, config }: Props) {
     ctx.fillText("50% used", pad.left + pw / 2, h - 6);
     ctx.fillText("100%", pad.left + pw, h - 6);
 
-    // Build curve path
-    const steps = 200;
-    ctx.beginPath();
-    for (let i = 0; i <= steps; i++) {
-      const ratio = i / steps; // remaining ratio
-      const curved = Math.pow(ratio, shape);
-      const rate = minRate + (maxRate - minRate) * curved;
-      const x = pad.left + (1 - ratio) * pw;
-      const y = pad.top + ph - (rate / maxRate) * ph;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+    // Build curve with arc-length parameterization
+    const pts = arcLengthCurvePoints(shape, minRate, maxRate, pad.left, pad.top, pw, ph);
 
-    // Area fill — curve ends at left edge, close along bottom
+    // Area fill
+    ctx.beginPath();
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.lineTo(pad.left, pad.top + ph);
     ctx.lineTo(pad.left + pw, pad.top + ph);
     ctx.closePath();
@@ -83,15 +76,7 @@ export default function CurveChart({ curve, quota, config }: Props) {
 
     // Curve line
     ctx.beginPath();
-    for (let i = 0; i <= steps; i++) {
-      const ratio = i / steps;
-      const curved = Math.pow(ratio, shape);
-      const rate = minRate + (maxRate - minRate) * curved;
-      const x = pad.left + (1 - ratio) * pw;
-      const y = pad.top + ph - (rate / maxRate) * ph;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+    pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
     ctx.lineWidth = 2;
     ctx.stroke();

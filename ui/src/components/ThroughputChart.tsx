@@ -6,6 +6,10 @@ interface Props {
   throughput: ThroughputState;
 }
 
+/**
+ * Stacked sparkline: download grows downward from center,
+ * upload grows upward from center.
+ */
 function Sparkline({ samples }: { samples: ThroughputSample[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -25,7 +29,7 @@ function Sparkline({ samples }: { samples: ThroughputSample[] }) {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
 
-    if (!samples || samples.length < 2) return;
+    if (samples.length < 2) return;
 
     let maxBps = 1000;
     for (const s of samples) {
@@ -34,61 +38,63 @@ function Sparkline({ samples }: { samples: ThroughputSample[] }) {
     }
     maxBps *= 1.15;
 
+    const mid = h / 2;
+    const halfH = h / 2;
     const n = samples.length;
 
-    // Download area + line
+    // Download: from center downward
     ctx.beginPath();
     for (let j = 0; j < n; j++) {
       const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].down_bps / maxBps) * h;
+      const y = mid + (samples[j].down_bps / maxBps) * halfH;
       if (j === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
+    ctx.lineTo(w, mid);
+    ctx.lineTo(0, mid);
     ctx.closePath();
-    const grad1 = ctx.createLinearGradient(0, 0, 0, h);
-    grad1.addColorStop(0, "#60a5fa18");
-    grad1.addColorStop(1, "#60a5fa04");
+    const grad1 = ctx.createLinearGradient(0, mid, 0, h);
+    grad1.addColorStop(0, "#60a5fa08");
+    grad1.addColorStop(1, "#60a5fa20");
     ctx.fillStyle = grad1;
     ctx.fill();
 
     ctx.beginPath();
     for (let j = 0; j < n; j++) {
       const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].down_bps / maxBps) * h;
+      const y = mid + (samples[j].down_bps / maxBps) * halfH;
       if (j === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = "#60a5fa50";
+    ctx.strokeStyle = "#60a5fa40";
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Upload area + line
+    // Upload: from center upward
     ctx.beginPath();
     for (let j = 0; j < n; j++) {
       const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].up_bps / maxBps) * h;
+      const y = mid - (samples[j].up_bps / maxBps) * halfH;
       if (j === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
+    ctx.lineTo(w, mid);
+    ctx.lineTo(0, mid);
     ctx.closePath();
-    const grad2 = ctx.createLinearGradient(0, 0, 0, h);
-    grad2.addColorStop(0, "#4ade8012");
-    grad2.addColorStop(1, "#4ade8004");
+    const grad2 = ctx.createLinearGradient(0, 0, 0, mid);
+    grad2.addColorStop(0, "#4ade8020");
+    grad2.addColorStop(1, "#4ade8008");
     ctx.fillStyle = grad2;
     ctx.fill();
 
     ctx.beginPath();
     for (let j = 0; j < n; j++) {
       const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].up_bps / maxBps) * h;
+      const y = mid - (samples[j].up_bps / maxBps) * halfH;
       if (j === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = "#4ade8040";
+    ctx.strokeStyle = "#4ade8030";
     ctx.lineWidth = 1;
     ctx.stroke();
   }, [samples]);
@@ -129,8 +135,7 @@ function computeUsage(samples: ThroughputSample[]): {
 
   for (let i = 1; i < samples.length; i++) {
     const dt = samples[i].ts - samples[i - 1].ts;
-    if (dt <= 0 || dt > 30) continue; // skip gaps
-    // bps * seconds / 8 = bytes
+    if (dt <= 0 || dt > 60) continue;
     downBytes += (samples[i].down_bps * dt) / 8;
     upBytes += (samples[i].up_bps * dt) / 8;
   }
@@ -141,7 +146,7 @@ function computeUsage(samples: ThroughputSample[]): {
 }
 
 function formatWindowLabel(durationSec: number): string {
-  if (durationSec >= 3540) return "Last hour usage"; // within 1 min of full hour
+  if (durationSec >= 3540) return "Last hour usage";
   const minutes = Math.round(durationSec / 60);
   if (minutes < 1) return "Recent usage";
   return `Last ${minutes}m usage`;
@@ -181,16 +186,16 @@ export default function ThroughputChart({ throughput }: Props) {
         >
           {formatWindowLabel(durationSec)}
         </div>
-        <div style={{ display: "flex", gap: 20, alignItems: "baseline" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div>
             <span style={{ color: "#555", fontSize: 11 }}>Down </span>
-            <span style={{ color: "#60a5fa", fontSize: 20, fontWeight: 600 }}>
+            <span style={{ color: "#60a5fa", fontSize: 16, fontWeight: 600 }}>
               {formatBytes(downBytes)}
             </span>
           </div>
           <div>
             <span style={{ color: "#555", fontSize: 11 }}>Up </span>
-            <span style={{ color: "#4ade80", fontSize: 20, fontWeight: 600 }}>
+            <span style={{ color: "#4ade80", fontSize: 16, fontWeight: 600 }}>
               {formatBytes(upBytes)}
             </span>
           </div>

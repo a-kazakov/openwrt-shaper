@@ -70,6 +70,10 @@ struct EngineInner {
     throughput_samples: Vec<ThroughputSample>,
     last_tick_down: i64,
     last_tick_up: i64,
+    // 30-second accumulator for coarse samples
+    sample_accum_down: i64,
+    sample_accum_up: i64,
+    sample_accum_ticks: i32,
 
     // Snapshot cache
     last_snapshot: Option<StateSnapshot>,
@@ -149,6 +153,9 @@ impl Engine {
                 throughput_samples: Vec::new(),
                 last_tick_down: 0,
                 last_tick_up: 0,
+                sample_accum_down: 0,
+                sample_accum_up: 0,
+                sample_accum_ticks: 0,
                 last_snapshot: None,
                 dish_status: None,
             })),
@@ -434,17 +441,27 @@ impl Engine {
         // Track throughput
         inner.last_tick_down = tick_down_total;
         inner.last_tick_up = tick_up_total;
-        let sample = ThroughputSample {
-            ts: now.timestamp(),
-            down_bps: tick_down_total * 8 / snap.tick_interval_sec as i64,
-            up_bps: tick_up_total * 8 / snap.tick_interval_sec as i64,
-        };
-        inner.throughput_samples.push(sample);
-        // Keep last 1 hour of samples
-        let max_samples = 3600 / snap.tick_interval_sec as usize;
-        if inner.throughput_samples.len() > max_samples {
-            let start = inner.throughput_samples.len() - max_samples;
-            inner.throughput_samples = inner.throughput_samples[start..].to_vec();
+
+        // Accumulate into 30-second buckets
+        inner.sample_accum_down += tick_down_total;
+        inner.sample_accum_up += tick_up_total;
+        inner.sample_accum_ticks += 1;
+        let ticks_per_sample = 30 / snap.tick_interval_sec;
+        if inner.sample_accum_ticks >= ticks_per_sample {
+            let window_sec = inner.sample_accum_ticks as i64 * snap.tick_interval_sec as i64;
+            let sample = ThroughputSample {
+                ts: now.timestamp(),
+                down_bps: inner.sample_accum_down * 8 / window_sec,
+                up_bps: inner.sample_accum_up * 8 / window_sec,
+            };
+            inner.throughput_samples.push(sample);
+            inner.sample_accum_down = 0;
+            inner.sample_accum_up = 0;
+            inner.sample_accum_ticks = 0;
+            // Keep last 120 samples (1 hour at 30s intervals)
+            if inner.throughput_samples.len() > 120 {
+                inner.throughput_samples.remove(0);
+            }
         }
 
         // Update snapshot cache and broadcast
