@@ -288,23 +288,14 @@ impl Engine {
         let mut upload_delta: i64 = 0;
         let mut download_delta: i64 = 0;
 
-        // Process each device
+        // Phase 1: Read counters and drain buckets
         for dev in inner.devices.values_mut() {
-            // Update bucket capacity and thresholds
-            dev.bucket.update(
-                curve_rate_bps,
-                snap.bucket_duration_sec,
-                snap.tick_interval_sec,
-                snap.burst_drain_ratio,
-            );
-
             // Read counters
             if let Ok(ref counter_map) = counters_result {
                 if let Some(c) = counter_map.get(&dev.mark) {
                     let new_up = c[0];
                     let new_down = c[1];
 
-                    // Compute deltas (handle counter reset)
                     dev.delta_up = new_up - dev.prev_counter_up;
                     if dev.delta_up < 0 {
                         dev.delta_up = 0;
@@ -319,12 +310,11 @@ impl Engine {
                 }
             }
 
-            // Combined delta
             let delta = dev.delta_up + dev.delta_down;
             tick_up_total += dev.delta_up;
             tick_down_total += dev.delta_down;
 
-            // Drain bucket
+            // Drain bucket BEFORE hysteresis check
             dev.bucket.drain(delta);
 
             // Update session and cycle bytes
@@ -332,7 +322,6 @@ impl Engine {
             dev.session_down += dev.delta_down;
             dev.cycle_bytes += delta;
 
-            // Accumulate quota updates (applied after loop)
             quota_delta += delta;
             upload_delta += dev.delta_up;
             download_delta += dev.delta_down;
@@ -351,29 +340,22 @@ impl Engine {
             }
         }
 
-        // Apply accumulated quota updates
         inner.month_used += quota_delta;
         inner.used_upload += upload_delta;
         inner.used_download += download_delta;
 
-        // Compute refill
-        let mut non_full_count = 0i64;
-        for dev in inner.devices.values() {
-            if !dev.bucket.is_full() {
-                non_full_count += 1;
-            }
-        }
-        if non_full_count > 0 {
-            let refill_per_device =
-                curve_rate_bps * snap.tick_interval_sec as i64 / non_full_count;
-            for dev in inner.devices.values_mut() {
-                if !dev.bucket.is_full() {
-                    dev.bucket.refill(refill_per_device);
-                }
-            }
+        // Phase 2: Update bucket capacity and evaluate hysteresis AFTER drain
+        // This ensures mode transitions happen in the same tick as the drain
+        for dev in inner.devices.values_mut() {
+            dev.bucket.update(
+                curve_rate_bps,
+                snap.bucket_duration_sec,
+                snap.tick_interval_sec,
+                snap.burst_drain_ratio,
+            );
         }
 
-        // Apply device modes and update tc
+        // Phase 3: Apply device modes and update tc (before refill)
         let mut fair_share_kbit = curve_rate_kbit / active_devices;
         if fair_share_kbit < snap.min_rate_kbit {
             fair_share_kbit = snap.min_rate_kbit;
@@ -434,6 +416,23 @@ impl Engine {
                 update.burst_ceil,
                 snap.down_up_ratio,
             );
+        }
+
+        // Phase 4: Refill buckets AFTER mode changes are applied to tc
+        let mut non_full_count = 0i64;
+        for dev in inner.devices.values() {
+            if !dev.bucket.is_full() {
+                non_full_count += 1;
+            }
+        }
+        if non_full_count > 0 {
+            let refill_per_device =
+                curve_rate_bps * snap.tick_interval_sec as i64 / non_full_count;
+            for dev in inner.devices.values_mut() {
+                if !dev.bucket.is_full() {
+                    dev.bucket.refill(refill_per_device);
+                }
+            }
         }
 
         // Track throughput
