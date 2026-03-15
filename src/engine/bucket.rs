@@ -2,13 +2,8 @@ use crate::model::DeviceMode;
 
 const BURST_CEIL_FLOOR_KBIT: i32 = 1000;
 
-/// Per-device byte token bucket with dynamic capacity and hysteresis-based
-/// mode transitions.
-///
-/// Modes:
-/// - Burst: tokens available → ceiling proportional to bucket size
-/// - Sustained: tokens depleted → fair share (80/20 down/up split)
-/// - Turbo: manual override → uncapped, time-limited
+/// Per-device byte token bucket with hysteresis-based mode transitions.
+/// See `DeviceMode` for mode descriptions.
 pub struct DeviceBucket {
     tokens: i64,
     capacity: i64,
@@ -33,14 +28,12 @@ impl DeviceBucket {
         }
     }
 
-    /// Recalculate capacity from current curve rate, clamp tokens,
-    /// compute burst ceiling and hysteresis thresholds.
+    /// Recalculate capacity, burst ceiling, and hysteresis thresholds.
     ///
-    /// Logic:
-    /// 1. shape_at = max_burst_bytes_per_tick (one tick at max burst speed)
-    /// 2. Cap shape_at at 25% of capacity
-    /// 3. unshape_at = shape_at × 3
-    /// 4. Recompute burst_ceil from (possibly capped) shape_at
+    /// Hysteresis creates a dead zone between shape_at and unshape_at to prevent
+    /// mode flapping. shape_at = bytes drained in one tick at max burst speed
+    /// (capped at 25% capacity to prevent oscillation in small buckets).
+    /// unshape_at = 3× shape_at, giving a wide dead zone for stability.
     pub fn update(
         &mut self,
         curve_rate_bytes_per_sec: i64,
@@ -54,12 +47,11 @@ impl DeviceBucket {
             self.tokens = self.capacity;
         }
 
-        // Step 1: shape_at from max burst speed (bytes drained in one tick)
         let max_burst_bytes_per_tick =
             max_burst_kbit as i64 * 1000 / 8 * tick_sec as i64;
         self.shape_at = max_burst_bytes_per_tick;
 
-        // Step 2: cap at 25% of capacity
+        // Cap at 25% of capacity to prevent oscillation in small buckets
         let cap_quarter = self.capacity / 4;
         if self.shape_at > cap_quarter {
             self.shape_at = cap_quarter;
@@ -68,12 +60,12 @@ impl DeviceBucket {
             self.shape_at = 1;
         }
 
-        // Step 3: unshape_at = 3× shape_at
         self.unshape_at = self.shape_at * 3;
 
-        // Step 4: recompute burst ceiling from (possibly capped) shape_at
+        // Derive effective burst ceiling from (possibly capped) shape_at
         let burst_bytes_per_sec = self.shape_at as f64 / tick_sec as f64;
         self.burst_ceil_kbit = (burst_bytes_per_sec * 8.0 / 1000.0) as i32;
+        // Floor prevents tc from rejecting sub-kbit rates
         if self.burst_ceil_kbit < BURST_CEIL_FLOOR_KBIT {
             self.burst_ceil_kbit = BURST_CEIL_FLOOR_KBIT;
         }

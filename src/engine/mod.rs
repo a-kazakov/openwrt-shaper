@@ -237,12 +237,15 @@ impl Engine {
         }
     }
 
+    /// Engine tick: four-phase update ensuring state machine consistency.
+    /// Order matters: drain → hysteresis → tc update → refill.
+    /// Draining before hysteresis ensures mode transitions reflect this tick's usage.
+    /// Updating tc before refill prevents a device from bursting with freshly-added tokens.
     fn tick(&self) {
         let mut inner = self.inner.write().unwrap();
         let snap = inner.cfg.snapshot();
         let now = Utc::now();
 
-        // Check billing cycle
         if inner.billing.should_reset(&inner.billing_month, now) {
             info!("engine: billing cycle reset");
             inner.month_used = 0;
@@ -282,7 +285,7 @@ impl Engine {
             }
         }
         if active_devices == 0 {
-            active_devices = 1;
+            active_devices = 1; // prevent division-by-zero in fair-share calculation
         }
 
         let mut tick_down_total: i64 = 0;
@@ -300,6 +303,8 @@ impl Engine {
                     let new_down = c[1];
 
                     dev.delta_up = new_up - dev.prev_counter_up;
+                    // Negative delta means nft counters were reset (e.g., table recreated).
+                    // Discard to avoid crediting negative bytes to quota.
                     if dev.delta_up < 0 {
                         dev.delta_up = 0;
                     }
@@ -317,10 +322,8 @@ impl Engine {
             tick_up_total += dev.delta_up;
             tick_down_total += dev.delta_down;
 
-            // Drain bucket BEFORE hysteresis check
             dev.bucket.drain(delta);
 
-            // Update session and cycle bytes
             dev.session_up += dev.delta_up;
             dev.session_down += dev.delta_down;
             dev.cycle_bytes += delta;
@@ -347,8 +350,6 @@ impl Engine {
         inner.used_upload += upload_delta;
         inner.used_download += download_delta;
 
-        // Phase 2: Update bucket capacity and evaluate hysteresis AFTER drain
-        // This ensures mode transitions happen in the same tick as the drain
         for dev in inner.devices.values_mut() {
             dev.bucket.update(
                 curve_rate_bps,
@@ -358,7 +359,7 @@ impl Engine {
             );
         }
 
-        // Phase 3: Apply device modes and update tc (before refill)
+        // Apply mode changes to tc before refill to prevent burst with fresh tokens
         let mut fair_share_kbit = curve_rate_kbit / active_devices;
         if fair_share_kbit < snap.min_rate_kbit {
             fair_share_kbit = snap.min_rate_kbit;
@@ -421,7 +422,7 @@ impl Engine {
             );
         }
 
-        // Phase 4: Refill buckets AFTER mode changes are applied to tc
+        // Refill after tc update: shared pool divided among non-full devices
         let mut non_full_count = 0i64;
         for dev in inner.devices.values() {
             if !dev.bucket.is_full() {
@@ -562,8 +563,8 @@ impl Engine {
             seen.insert(d.mac.clone(), true);
 
             if !inner.devices.contains_key(&d.mac) {
-                // New device
                 let slot = inner.slot_alloc;
+                // Offset from DEVICE_MARK_BASE to avoid conflict with default nft/iptables marks
                 let mark = DEVICE_MARK_BASE + slot;
 
                 let mut bucket = DeviceBucket::new(curve_rate_bps, snap.bucket_duration_sec);
