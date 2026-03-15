@@ -1,12 +1,12 @@
-import { useRef, useEffect, useCallback } from "react";
-import type { ThroughputState } from "../types";
-import { formatGBperHour } from "../utils";
+import { useRef, useEffect, useCallback, useMemo } from "react";
+import type { ThroughputState, ThroughputSample } from "../types";
+import { formatBytes } from "../utils";
 
 interface Props {
   throughput: ThroughputState;
 }
 
-function Sparkline({ samples }: { samples: ThroughputState["samples_1h"] }) {
+function Sparkline({ samples }: { samples: ThroughputSample[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const draw = useCallback(() => {
@@ -115,7 +115,44 @@ function Sparkline({ samples }: { samples: ThroughputState["samples_1h"] }) {
   );
 }
 
+/** Sum actual bytes consumed across all samples using timestamp deltas. */
+function computeUsage(samples: ThroughputSample[]): {
+  downBytes: number;
+  upBytes: number;
+  durationSec: number;
+} {
+  if (samples.length < 2)
+    return { downBytes: 0, upBytes: 0, durationSec: 0 };
+
+  let downBytes = 0;
+  let upBytes = 0;
+
+  for (let i = 1; i < samples.length; i++) {
+    const dt = samples[i].ts - samples[i - 1].ts;
+    if (dt <= 0 || dt > 30) continue; // skip gaps
+    // bps * seconds / 8 = bytes
+    downBytes += (samples[i].down_bps * dt) / 8;
+    upBytes += (samples[i].up_bps * dt) / 8;
+  }
+
+  const durationSec = samples[samples.length - 1].ts - samples[0].ts;
+
+  return { downBytes, upBytes, durationSec };
+}
+
+function formatWindowLabel(durationSec: number): string {
+  if (durationSec >= 3540) return "Last hour usage"; // within 1 min of full hour
+  const minutes = Math.round(durationSec / 60);
+  if (minutes < 1) return "Recent usage";
+  return `Last ${minutes}m usage`;
+}
+
 export default function ThroughputChart({ throughput }: Props) {
+  const { downBytes, upBytes, durationSec } = useMemo(
+    () => computeUsage(throughput.samples_1h),
+    [throughput.samples_1h],
+  );
+
   return (
     <div
       style={{
@@ -127,25 +164,35 @@ export default function ThroughputChart({ throughput }: Props) {
         overflow: "hidden",
         height: "100%",
         display: "flex",
-        alignItems: "center",
+        flexDirection: "column",
+        justifyContent: "center",
       }}
     >
       <Sparkline samples={throughput.samples_1h} />
-      <div style={{ position: "relative", zIndex: 1, display: "flex", gap: 20, alignItems: "baseline" }}>
-        <div>
-          <div style={{ color: "#666", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>
-            Down
-          </div>
-          <div style={{ color: "#60a5fa", fontSize: 22, fontWeight: 600, lineHeight: 1.2 }}>
-            {formatGBperHour(throughput.current_down_bps)}
-          </div>
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <div
+          style={{
+            color: "#666",
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            marginBottom: 6,
+          }}
+        >
+          {formatWindowLabel(durationSec)}
         </div>
-        <div>
-          <div style={{ color: "#666", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>
-            Up
+        <div style={{ display: "flex", gap: 20, alignItems: "baseline" }}>
+          <div>
+            <span style={{ color: "#555", fontSize: 11 }}>Down </span>
+            <span style={{ color: "#60a5fa", fontSize: 20, fontWeight: 600 }}>
+              {formatBytes(downBytes)}
+            </span>
           </div>
-          <div style={{ color: "#4ade80", fontSize: 22, fontWeight: 600, lineHeight: 1.2 }}>
-            {formatGBperHour(throughput.current_up_bps)}
+          <div>
+            <span style={{ color: "#555", fontSize: 11 }}>Up </span>
+            <span style={{ color: "#4ade80", fontSize: 20, fontWeight: 600 }}>
+              {formatBytes(upBytes)}
+            </span>
           </div>
         </div>
       </div>
