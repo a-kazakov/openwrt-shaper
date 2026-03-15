@@ -5,6 +5,25 @@ import type { DeviceSnapshot } from "../types";
 import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound } from "../utils";
 import { enableTurbo, cancelTurbo } from "../api";
 
+/** Format down/up bps pair into a compact string with shared unit: "▼4.0 / ▲1.0 Mb/s" */
+function formatLimitPair(downBps: number, upBps: number): string {
+  const maxVal = Math.max(downBps, upBps);
+  let unit: string;
+  let div: number;
+  if (maxVal >= 1000000) {
+    unit = "Mb/s";
+    div = 1000000;
+  } else {
+    unit = "Kb/s";
+    div = 1000;
+  }
+  const fmt = (v: number) => {
+    const n = v / div;
+    return n < 10 ? n.toFixed(1) : String(Math.round(n));
+  };
+  return `\u{25BC}${fmt(downBps)} / \u{25B2}${fmt(upBps)} ${unit}`;
+}
+
 interface Props {
   devices: DeviceSnapshot[];
   onMessage: (text: string, type: "success" | "error" | "info") => void;
@@ -261,7 +280,7 @@ function DeviceCard({
           </span>
           {device.shaped_down_kbit != null && device.shaped_up_kbit != null && (
             <span style={{ color: "#555" }}>
-              Limit: {formatRateRound(device.shaped_down_kbit * 1000)}&#9660; / {formatRateRound(device.shaped_up_kbit * 1000)}&#9650;
+              Max: {formatLimitPair(device.shaped_down_kbit * 1000, device.shaped_up_kbit * 1000)}
             </span>
           )}
         </div>
@@ -326,7 +345,7 @@ export default function DeviceTable({ devices, onMessage }: Props) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(350px, 1fr))",
           gap: 10,
         }}
       >
