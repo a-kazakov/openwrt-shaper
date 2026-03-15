@@ -98,4 +98,6 @@ export interface ConfigValues {
   device_scan_interval_sec: number;
   overage_cost_per_gb: number;
   plan_cost_monthly: number;
+  resolved_wan?: string;
+  resolved_lan?: string;
 }

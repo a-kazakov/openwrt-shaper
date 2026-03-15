@@ -61,34 +61,33 @@ async fn main() {
         snap.listen_addr
     );
 
-    // Auto-detect interfaces
-    let mut wan = snap.wan_iface.clone();
-    let mut lan = snap.lan_iface.clone();
-
-    if wan == "auto" {
-        match netctl::devices::detect_wan_iface() {
-            Ok(iface) => {
-                info!("detected WAN interface: {iface}");
-                wan = iface;
-            }
-            Err(e) => {
+    // Detect interfaces
+    let wan = match netctl::devices::detect_wan_iface() {
+        Ok(iface) => {
+            info!("detected WAN interface: {iface}");
+            iface
+        }
+        Err(e) => {
+            if snap.wan_iface == "auto" {
                 error!("failed to detect WAN interface: {e}");
                 std::process::exit(1);
             }
+            snap.wan_iface.clone()
         }
-    }
-    if lan == "auto" {
-        match netctl::devices::detect_lan_iface(&wan) {
-            Ok(iface) => {
-                info!("detected LAN interface: {iface}");
-                lan = iface;
-            }
-            Err(e) => {
+    };
+    let lan = match netctl::devices::detect_lan_iface(&wan) {
+        Ok(iface) => {
+            info!("detected LAN interface: {iface}");
+            iface
+        }
+        Err(e) => {
+            if snap.lan_iface == "auto" {
                 error!("failed to detect LAN interface: {e}");
                 std::process::exit(1);
             }
+            snap.lan_iface.clone()
         }
-    }
+    };
     cfg.resolve_ifaces(&wan, &lan);
 
     // Open database
