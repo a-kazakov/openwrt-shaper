@@ -1,12 +1,9 @@
 use crate::model::DeviceMode;
 
-/// Per-device byte token bucket with dynamic capacity and hysteresis-based
-/// mode transitions.
-///
-/// Modes:
-/// - Burst: tokens available → ceiling proportional to bucket size
-/// - Sustained: tokens depleted → fair share (80/20 down/up split)
-/// - Turbo: manual override → uncapped, time-limited
+const BURST_CEIL_FLOOR_KBIT: i32 = 1000;
+
+/// Per-device byte token bucket with hysteresis-based mode transitions.
+/// See `DeviceMode` for mode descriptions.
 pub struct DeviceBucket {
     tokens: i64,
     capacity: i64,
@@ -31,20 +28,17 @@ impl DeviceBucket {
         }
     }
 
-    /// Recalculate capacity from current curve rate, clamp tokens,
-    /// compute burst ceiling and hysteresis thresholds.
+    /// Recalculate capacity, burst ceiling, and hysteresis thresholds.
     ///
-    /// Logic:
-    /// 1. shape_at = max_burst_bytes_per_tick (one tick at max burst speed)
-    /// 2. Cap shape_at at 25% of capacity
-    /// 3. unshape_at = shape_at × 3
-    /// 4. Recompute burst_ceil from (possibly capped) shape_at
+    /// Hysteresis creates a dead zone between shape_at and unshape_at to prevent
+    /// mode flapping. shape_at = bytes drained in one tick at max burst speed
+    /// (capped at 25% capacity to prevent oscillation in small buckets).
+    /// unshape_at = 3× shape_at, giving a wide dead zone for stability.
     pub fn update(
         &mut self,
         curve_rate_bytes_per_sec: i64,
         duration_sec: i32,
         tick_sec: i32,
-        _burst_drain_ratio: f64,
         max_burst_kbit: i32,
     ) {
         self.capacity = curve_rate_bytes_per_sec * duration_sec as i64;
@@ -53,12 +47,11 @@ impl DeviceBucket {
             self.tokens = self.capacity;
         }
 
-        // Step 1: shape_at from max burst speed (bytes drained in one tick)
         let max_burst_bytes_per_tick =
             max_burst_kbit as i64 * 1000 / 8 * tick_sec as i64;
         self.shape_at = max_burst_bytes_per_tick;
 
-        // Step 2: cap at 25% of capacity
+        // Cap at 25% of capacity to prevent oscillation in small buckets
         let cap_quarter = self.capacity / 4;
         if self.shape_at > cap_quarter {
             self.shape_at = cap_quarter;
@@ -67,14 +60,14 @@ impl DeviceBucket {
             self.shape_at = 1;
         }
 
-        // Step 3: unshape_at = 3× shape_at
         self.unshape_at = self.shape_at * 3;
 
-        // Step 4: recompute burst ceiling from (possibly capped) shape_at
+        // Derive effective burst ceiling from (possibly capped) shape_at
         let burst_bytes_per_sec = self.shape_at as f64 / tick_sec as f64;
         self.burst_ceil_kbit = (burst_bytes_per_sec * 8.0 / 1000.0) as i32;
-        if self.burst_ceil_kbit < 1000 {
-            self.burst_ceil_kbit = 1000;
+        // Floor prevents tc from rejecting sub-kbit rates
+        if self.burst_ceil_kbit < BURST_CEIL_FLOOR_KBIT {
+            self.burst_ceil_kbit = BURST_CEIL_FLOOR_KBIT;
         }
         let shape_at = self.shape_at;
         let unshape_at = self.unshape_at;
@@ -213,7 +206,7 @@ mod tests {
 
         // Simulate curve rate dropping (quota depleting)
         // New curve rate = 1 Mbps = 125000 bytes/sec
-        b.update(125_000, 300, 2, 0.10, 300_000); // capacity = 37.5 MB
+        b.update(125_000, 300, 2, 300_000); // capacity = 37.5 MB
 
         let new_cap = b.capacity();
         assert!(
@@ -240,18 +233,18 @@ mod tests {
         // shape_at = min(75MB, 468.75MB) = 75 MB
         // unshape_at = 75 * 3 = 225 MB
         let mut b = full_bucket(6_250_000, 300);
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
 
         assert_eq!(b.mode(), DeviceMode::Burst);
 
         // Drain everything → below shape_at
         b.drain(b.tokens());
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
         assert_eq!(b.mode(), DeviceMode::Sustained);
 
         // Refill to dead zone (between shape_at=75MB and unshape_at=225MB)
         b.refill(150 * 1_048_576); // 150 MB
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
         assert_eq!(
             b.mode(),
             DeviceMode::Sustained,
@@ -260,7 +253,7 @@ mod tests {
 
         // Refill above unshape_at
         b.refill(300 * 1_048_576); // well above 225 MB
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
         assert_eq!(b.mode(), DeviceMode::Burst);
     }
 
@@ -270,7 +263,7 @@ mod tests {
         // shape_at = 75 MB (not capped, < cap/4)
         // burst_ceil = shape_at / tick × 8 / 1000 = 75MB/2 × 8/1000 = 300000 kbit
         let mut b = full_bucket(6_250_000, 300);
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
 
         let ceil = b.burst_ceil_kbit();
         assert_eq!(ceil, 300_000, "burst ceil should be 300 Mbps");
@@ -278,7 +271,7 @@ mod tests {
         // Burst ceil doesn't depend on tokens
         b.drain(b.tokens());
         b.refill(56 * 1_048_576);
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
 
         let ceil = b.burst_ceil_kbit();
         assert_eq!(ceil, 300_000, "burst ceil should still be 300 Mbps");
@@ -293,7 +286,7 @@ mod tests {
         // shape_at = min(75MB, 1.875MB) = 1.875 MB (capped at 25%)
         // burst_ceil = 1,875,000 / 2 × 8/1000 = 7500 kbit
         let mut b = full_bucket(125_000, 60);
-        b.update(125_000, 60, 2, 0.10, 300_000);
+        b.update(125_000, 60, 2, 300_000);
 
         let ceil = b.burst_ceil_kbit();
         assert!(
@@ -305,10 +298,10 @@ mod tests {
     #[test]
     fn burst_ceil_floor() {
         let mut b = DeviceBucket::new(100, 1); // tiny bucket, starts empty
-        b.update(100, 1, 2, 0.10, 300_000);
+        b.update(100, 1, 2, 300_000);
 
         let ceil = b.burst_ceil_kbit();
-        assert!(ceil >= 1000, "burst ceil floor = {ceil}, want >= 1000");
+        assert!(ceil >= BURST_CEIL_FLOOR_KBIT, "burst ceil floor = {ceil}, want >= {BURST_CEIL_FLOOR_KBIT}");
     }
 
     #[test]
@@ -318,13 +311,13 @@ mod tests {
 
         // Turbo should not be changed by Update
         b.drain(b.tokens());
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
 
         assert_eq!(b.mode(), DeviceMode::Turbo);
 
         // Cancel turbo
         b.set_mode(DeviceMode::Burst);
-        b.update(6_250_000, 300, 2, 0.10, 300_000);
+        b.update(6_250_000, 300, 2, 300_000);
         // With 0 tokens, should transition to SUSTAINED
         assert_eq!(b.mode(), DeviceMode::Sustained);
     }

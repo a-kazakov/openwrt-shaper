@@ -1,4 +1,5 @@
 use super::{run_cmd, run_cmd_ignore};
+use crate::model::DeviceMode;
 use tracing::{info, warn};
 
 const UNCAPPED: i32 = 1_000_000; // 1 Gbps in kbit
@@ -188,30 +189,27 @@ impl TCController {
     pub fn set_device_mode(
         &self,
         slot: i32,
-        mode: &str,
+        mode: DeviceMode,
         fair_share_kbit: i32,
         burst_ceil_kbit: i32,
         down_up_ratio: f64,
     ) {
         match mode {
-            "turbo" => {
+            DeviceMode::Turbo => {
                 self.set_class(&self.wan_iface, slot, "1:1", UNCAPPED, UNCAPPED);
                 self.set_class(&self.lan_iface, slot, "1:3", UNCAPPED, UNCAPPED);
             }
-            "burst" => {
+            DeviceMode::Burst => {
                 let down = (burst_ceil_kbit as f64 * down_up_ratio) as i32;
                 let up = burst_ceil_kbit - down;
                 self.set_class(&self.wan_iface, slot, "1:1", up.max(1), up.max(1));
                 self.set_class(&self.lan_iface, slot, "1:3", down.max(1), down.max(1));
             }
-            "sustained" => {
+            DeviceMode::Sustained => {
                 let down = (fair_share_kbit as f64 * down_up_ratio) as i32;
                 let up = fair_share_kbit - down;
                 self.set_class(&self.wan_iface, slot, "1:1", up.max(1), up.max(1));
                 self.set_class(&self.lan_iface, slot, "1:3", down.max(1), down.max(1));
-            }
-            _ => {
-                info!("unknown mode: {mode}");
             }
         }
     }

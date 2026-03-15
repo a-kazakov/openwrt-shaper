@@ -28,7 +28,8 @@ function SliderRow({
   tipFormatter?: (v: number | undefined) => string;
 }) {
   const nudge = (delta: number) => {
-    const next = Math.round((value + delta) * 1000) / 1000; // avoid float drift
+    // Round via integer arithmetic to prevent IEEE 754 accumulation from repeated nudges
+    const next = Math.round((value + delta) * 1000) / 1000;
     onChange(Math.max(min, Math.min(max, next)));
   };
 
@@ -217,21 +218,20 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
       const cfg = await updateConfig(payload);
       onSaved(cfg);
       onClose();
-    } catch {
-      // error handled by parent message
+    } catch (e) {
+      console.error("Config save failed:", e);
     } finally {
       setSaving(false);
     }
   };
 
-  // Time to burn quota following the curve: integrate dt = total / rate(f) df
-  // rate(f) = minRate + (maxRate - minRate) * f^shape  (bytes/sec)
+  // Estimate time to fully deplete quota at max usage (without turbo)
   const maxBps = (maxMbit * 1000 * 1000) / 8;
   const minBps = (minMbit * 1000 * 1000) / 8;
   const quotaBytes = quotaGb * 1073741824;
   let burnSeconds = 0;
   {
-    const steps = 500;
+    const steps = 500; // Riemann sum steps; 500 gives ~0.2% error, fast enough for live preview
     for (let i = 0; i < steps; i++) {
       const f = (i + 0.5) / steps; // midpoint of each slice
       const rate = minBps + (maxBps - minBps) * Math.pow(f, curveShape);

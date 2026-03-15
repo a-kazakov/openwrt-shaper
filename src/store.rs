@@ -293,7 +293,7 @@ impl Store {
 }
 
 fn i64_to_bytes(v: i64) -> [u8; 8] {
-    (v as u64).to_be_bytes()
+    v.to_be_bytes()
 }
 
 fn bytes_to_i64(b: &[u8]) -> i64 {
@@ -302,7 +302,7 @@ fn bytes_to_i64(b: &[u8]) -> i64 {
     }
     let mut arr = [0u8; 8];
     arr.copy_from_slice(&b[..8]);
-    u64::from_be_bytes(arr) as i64
+    i64::from_be_bytes(arr)
 }
 
 #[cfg(test)]

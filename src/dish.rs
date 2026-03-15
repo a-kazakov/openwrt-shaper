@@ -3,7 +3,7 @@ use crate::netctl::run_cmd;
 use std::net::TcpStream;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::warn;
 
 /// Starlink dish client — probes TCP connectivity.
 pub struct DishClient {
@@ -99,27 +99,4 @@ impl DishClient {
         self.status.read().unwrap().clone()
     }
 
-    /// Run the dish poller as a background task.
-    pub async fn run_poller(
-        &self,
-        interval: Duration,
-        mut shutdown: tokio::sync::watch::Receiver<bool>,
-    ) {
-        self.ensure_route();
-
-        // Initial poll
-        if self.poll().is_none() {
-            info!("dish: initial poll: unreachable");
-        }
-
-        let mut timer = tokio::time::interval(interval);
-        loop {
-            tokio::select! {
-                _ = shutdown.changed() => return,
-                _ = timer.tick() => {
-                    self.poll();
-                }
-            }
-        }
-    }
 }

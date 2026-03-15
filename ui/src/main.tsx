@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { ConfigProvider, theme } from "antd";
 import App from "./App";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 const root = document.getElementById("root")!;
 
@@ -59,7 +60,9 @@ ReactDOM.createRoot(root).render(
         },
       }}
     >
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </ConfigProvider>
   </React.StrictMode>,
 );

@@ -2,57 +2,19 @@ import { useState, useEffect, useRef } from "react";
 import { Button, Card, Spin } from "antd";
 import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
-import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound } from "../utils";
+import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound, formatLimitPair, modeLabel, modeColor } from "../utils";
+import { colors } from "../theme";
 import { enableTurbo, cancelTurbo } from "../api";
-
-/** Format down/up bps pair into a compact string with shared unit: "▼4.0 / ▲1.0 Mb/s" */
-function formatLimitPair(downBps: number, upBps: number): string {
-  const maxVal = Math.max(downBps, upBps);
-  let unit: string;
-  let div: number;
-  if (maxVal >= 1000000000) {
-    unit = "Gb/s";
-    div = 1000000000;
-  } else if (maxVal >= 1000000) {
-    unit = "Mb/s";
-    div = 1000000;
-  } else {
-    unit = "Kb/s";
-    div = 1000;
-  }
-  const fmt = (v: number) => {
-    const n = v / div;
-    return n < 10 ? n.toFixed(1) : String(Math.round(n));
-  };
-  return `\u{25BC}${fmt(downBps)} / \u{25B2}${fmt(upBps)} ${unit}`;
-}
 
 interface Props {
   devices: DeviceSnapshot[];
   onMessage: (text: string, type: "success" | "error" | "info") => void;
 }
 
-function modeLabel(mode: string): string {
-  return mode === "sustained" ? "throttled" : mode;
-}
-
-function modeColor(mode: string): string {
-  switch (mode) {
-    case "burst":
-      return "#60a5fa";
-    case "sustained":
-      return "#fbbf24";
-    case "turbo":
-      return "#4ade80";
-    default:
-      return "#666";
-  }
-}
-
 function bucketColor(pct: number): string {
-  if (pct <= 10) return "#ef4444";
-  if (pct <= 30) return "#fbbf24";
-  return "#4ade80";
+  if (pct <= 10) return colors.danger;
+  if (pct <= 30) return colors.warning;
+  return colors.success;
 }
 
 function bucketStatus(device: DeviceSnapshot): { text: string; color: string } | null {
@@ -61,16 +23,16 @@ function bucketStatus(device: DeviceSnapshot): { text: string; color: string } |
   const net = refillBps - deviceSpeedBps;
 
   if (device.bucket_pct >= 100 && deviceSpeedBps === 0) {
-    return { text: "Full", color: "#4ade80" };
+    return { text: "Full", color: colors.success };
   }
   if (device.bucket_pct <= 0 && refillBps === 0) {
-    return { text: "Empty", color: "#ef4444" };
+    return { text: "Empty", color: colors.danger };
   }
   if (net > 0) {
-    return { text: `Refilling at ${formatRate(net)}`, color: "#4ade80" };
+    return { text: `Refilling at ${formatRate(net)}`, color: colors.success };
   }
   if (net < 0) {
-    return { text: `Draining at ${formatRate(-net)}`, color: "#fbbf24" };
+    return { text: `Draining at ${formatRate(-net)}`, color: colors.warning };
   }
   return null;
 }
@@ -85,6 +47,9 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
   const shapePct = thresholdPct(device.bucket_shape_at, device.bucket_capacity);
   const unshapePct = thresholdPct(device.bucket_unshape_at, device.bucket_capacity);
 
+  // Hysteresis marks: in burst mode show throttle threshold (black),
+  // in sustained mode show burst threshold (white). Dead zone between
+  // the two thresholds prevents mode flapping.
   const showMark = device.mode !== "turbo";
   const markPct = device.mode === "burst" ? shapePct : unshapePct;
   const markColor = device.mode === "burst" ? "#000000" : "#ffffff";

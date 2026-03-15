@@ -113,6 +113,7 @@ export default function CurveChart({ curve, quota, config }: Props) {
     const labelText = formatRateKbit(Math.round(youRate));
     ctx.font = "bold 12px -apple-system, sans-serif";
     ctx.fillStyle = "#fff";
+    // Flip label side when marker is near right edge to prevent clipping
     if (youX > w - 100) {
       ctx.textAlign = "right";
       ctx.fillText(labelText, youX - 12, youY - 12);

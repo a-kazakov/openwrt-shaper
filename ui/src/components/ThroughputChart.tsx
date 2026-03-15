@@ -36,7 +36,7 @@ function Sparkline({ samples }: { samples: ThroughputSample[] }) {
       if (s.down_bps > maxBps) maxBps = s.down_bps;
       if (s.up_bps > maxBps) maxBps = s.up_bps;
     }
-    maxBps *= 1.15;
+    maxBps *= 1.15; // 15% headroom prevents peak clipping on chart edges
 
     const mid = h / 2;
     const halfH = h / 2;
@@ -135,7 +135,7 @@ function computeUsage(samples: ThroughputSample[]): {
 
   for (let i = 1; i < samples.length; i++) {
     const dt = samples[i].ts - samples[i - 1].ts;
-    if (dt <= 0 || dt > 60) continue;
+    if (dt <= 0 || dt > 60) continue; // skip gaps from reconnect or data outage
     downBytes += (samples[i].down_bps * dt) / 8;
     upBytes += (samples[i].up_bps * dt) / 8;
   }
@@ -146,6 +146,7 @@ function computeUsage(samples: ThroughputSample[]): {
 }
 
 function formatWindowLabel(durationSec: number): string {
+  // 59 minutes is close enough to show "Last hour" for UI clarity
   if (durationSec >= 3540) return "Last hour usage";
   const minutes = Math.round(durationSec / 60);
   if (minutes < 1) return "Recent usage";

@@ -26,9 +26,8 @@ export default function App() {
   const loadConfig = useCallback(() => {
     getConfig()
       .then(setConfig)
-      .catch(() => {
-        /* will retry on drawer open */
-      });
+      // Non-blocking: re-fetched when user opens config drawer
+      .catch((e) => console.warn("Config load failed:", e));
   }, []);
 
   useEffect(() => {

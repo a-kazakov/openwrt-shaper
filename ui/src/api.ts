@@ -1,13 +1,18 @@
-import type { ConfigValues } from "./types";
+import type { ConfigValues, StateSnapshot } from "./types";
 
 async function request<T>(
   url: string,
   opts?: RequestInit,
 ): Promise<T> {
   const res = await fetch(url, opts);
-  const body = await res.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(`${res.status} ${res.statusText}`);
+  }
   if (!res.ok) {
-    throw new Error(body.error || res.statusText);
+    throw new Error((body.error as string) || res.statusText);
   }
   return body as T;
 }
@@ -36,7 +41,7 @@ export function syncUsage(
   });
 }
 
-export function adjustQuota(deltaBytes: number): Promise<unknown> {
+export function adjustQuota(deltaBytes: number): Promise<StateSnapshot> {
   return request("/api/v1/quota/adjust", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -44,7 +49,7 @@ export function adjustQuota(deltaBytes: number): Promise<unknown> {
   });
 }
 
-export function resetCycle(): Promise<unknown> {
+export function resetCycle(): Promise<StateSnapshot> {
   return request("/api/v1/quota/reset", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -55,7 +60,7 @@ export function resetCycle(): Promise<unknown> {
 export function enableTurbo(
   mac: string,
   durationMin: number = 15,
-): Promise<unknown> {
+): Promise<StateSnapshot> {
   return request(`/api/v1/device/${encodeURIComponent(mac)}/turbo`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -63,7 +68,7 @@ export function enableTurbo(
   });
 }
 
-export function cancelTurbo(mac: string): Promise<unknown> {
+export function cancelTurbo(mac: string): Promise<StateSnapshot> {
   return request(`/api/v1/device/${encodeURIComponent(mac)}/turbo`, {
     method: "DELETE",
   });

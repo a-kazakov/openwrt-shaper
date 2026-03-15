@@ -18,17 +18,20 @@ use bucket::DeviceBucket;
 use curve::CurveParams;
 
 use chrono::Utc;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::{error, info, warn};
+
+const THROUGHPUT_WINDOW_SEC: i32 = 30;
+const THROUGHPUT_HISTORY_SAMPLES: usize = 120;
+const DEVICE_MARK_BASE: i32 = 100;
 
 /// Internal per-device state held by the engine.
 struct DeviceState {
     mac: String,
     ip: String,
     hostname: String,
-    #[allow(dead_code)]
     source: String,
     slot: i32,
     mark: i32,
@@ -67,7 +70,7 @@ struct EngineInner {
     slot_alloc: i32,
 
     // Throughput tracking
-    throughput_samples: Vec<ThroughputSample>,
+    throughput_samples: VecDeque<ThroughputSample>,
     last_tick_down: i64,
     last_tick_up: i64,
     // 30-second accumulator for coarse samples
@@ -150,7 +153,7 @@ impl Engine {
                 billing_month: current_month,
                 devices: HashMap::new(),
                 slot_alloc: 0,
-                throughput_samples: Vec::new(),
+                throughput_samples: VecDeque::new(),
                 last_tick_down: 0,
                 last_tick_up: 0,
                 sample_accum_down: 0,
@@ -234,12 +237,15 @@ impl Engine {
         }
     }
 
+    /// Engine tick: four-phase update ensuring state machine consistency.
+    /// Order matters: drain → hysteresis → tc update → refill.
+    /// Draining before hysteresis ensures mode transitions reflect this tick's usage.
+    /// Updating tc before refill prevents a device from bursting with freshly-added tokens.
     fn tick(&self) {
         let mut inner = self.inner.write().unwrap();
         let snap = inner.cfg.snapshot();
         let now = Utc::now();
 
-        // Check billing cycle
         if inner.billing.should_reset(&inner.billing_month, now) {
             info!("engine: billing cycle reset");
             inner.month_used = 0;
@@ -279,7 +285,7 @@ impl Engine {
             }
         }
         if active_devices == 0 {
-            active_devices = 1;
+            active_devices = 1; // prevent division-by-zero in fair-share calculation
         }
 
         let mut tick_down_total: i64 = 0;
@@ -293,10 +299,12 @@ impl Engine {
             // Read counters
             if let Ok(ref counter_map) = counters_result {
                 if let Some(c) = counter_map.get(&dev.mark) {
-                    let new_up = c[0];
-                    let new_down = c[1];
+                    let new_up = c.upload;
+                    let new_down = c.download;
 
                     dev.delta_up = new_up - dev.prev_counter_up;
+                    // Negative delta means nft counters were reset (e.g., table recreated).
+                    // Discard to avoid crediting negative bytes to quota.
                     if dev.delta_up < 0 {
                         dev.delta_up = 0;
                     }
@@ -314,10 +322,8 @@ impl Engine {
             tick_up_total += dev.delta_up;
             tick_down_total += dev.delta_down;
 
-            // Drain bucket BEFORE hysteresis check
             dev.bucket.drain(delta);
 
-            // Update session and cycle bytes
             dev.session_up += dev.delta_up;
             dev.session_down += dev.delta_down;
             dev.cycle_bytes += delta;
@@ -344,19 +350,16 @@ impl Engine {
         inner.used_upload += upload_delta;
         inner.used_download += download_delta;
 
-        // Phase 2: Update bucket capacity and evaluate hysteresis AFTER drain
-        // This ensures mode transitions happen in the same tick as the drain
         for dev in inner.devices.values_mut() {
             dev.bucket.update(
                 curve_rate_bps,
                 snap.bucket_duration_sec,
                 snap.tick_interval_sec,
-                snap.burst_drain_ratio,
                 snap.max_burst_kbit,
             );
         }
 
-        // Phase 3: Apply device modes and update tc (before refill)
+        // Apply mode changes to tc before refill to prevent burst with fresh tokens
         let mut fair_share_kbit = curve_rate_kbit / active_devices;
         if fair_share_kbit < snap.min_rate_kbit {
             fair_share_kbit = snap.min_rate_kbit;
@@ -365,7 +368,7 @@ impl Engine {
         // Collect tc updates to avoid borrowing inner.tc while iterating inner.devices
         struct TcUpdate {
             slot: i32,
-            mode: String,
+            mode: crate::model::DeviceMode,
             fair_share: i32,
             burst_ceil: i32,
         }
@@ -380,7 +383,7 @@ impl Engine {
                 if dev.last_mode != crate::model::DeviceMode::Turbo {
                     tc_updates.push(TcUpdate {
                         slot: dev.slot,
-                        mode: "turbo".to_string(),
+                        mode: crate::model::DeviceMode::Turbo,
                         fair_share: fair_share_kbit,
                         burst_ceil: 0,
                     });
@@ -399,7 +402,7 @@ impl Engine {
             if mode_changed || ceil_changed {
                 tc_updates.push(TcUpdate {
                     slot: dev.slot,
-                    mode: mode.to_string(),
+                    mode,
                     fair_share: fair_share_kbit,
                     burst_ceil,
                 });
@@ -412,14 +415,14 @@ impl Engine {
         for update in tc_updates {
             inner.tc.set_device_mode(
                 update.slot,
-                &update.mode,
+                update.mode,
                 update.fair_share,
                 update.burst_ceil,
                 snap.down_up_ratio,
             );
         }
 
-        // Phase 4: Refill buckets AFTER mode changes are applied to tc
+        // Refill after tc update: shared pool divided among non-full devices
         let mut non_full_count = 0i64;
         for dev in inner.devices.values() {
             if !dev.bucket.is_full() {
@@ -444,7 +447,7 @@ impl Engine {
         inner.sample_accum_down += tick_down_total;
         inner.sample_accum_up += tick_up_total;
         inner.sample_accum_ticks += 1;
-        let ticks_per_sample = 30 / snap.tick_interval_sec;
+        let ticks_per_sample = THROUGHPUT_WINDOW_SEC / snap.tick_interval_sec;
         if inner.sample_accum_ticks >= ticks_per_sample {
             let window_sec = inner.sample_accum_ticks as i64 * snap.tick_interval_sec as i64;
             let sample = ThroughputSample {
@@ -452,13 +455,12 @@ impl Engine {
                 down_bps: inner.sample_accum_down * 8 / window_sec,
                 up_bps: inner.sample_accum_up * 8 / window_sec,
             };
-            inner.throughput_samples.push(sample);
+            inner.throughput_samples.push_back(sample);
             inner.sample_accum_down = 0;
             inner.sample_accum_up = 0;
             inner.sample_accum_ticks = 0;
-            // Keep last 120 samples (1 hour at 30s intervals)
-            if inner.throughput_samples.len() > 120 {
-                inner.throughput_samples.remove(0);
+            if inner.throughput_samples.len() > THROUGHPUT_HISTORY_SAMPLES {
+                inner.throughput_samples.pop_front();
             }
         }
 
@@ -561,9 +563,9 @@ impl Engine {
             seen.insert(d.mac.clone(), true);
 
             if !inner.devices.contains_key(&d.mac) {
-                // New device
                 let slot = inner.slot_alloc;
-                let mark = 100 + slot;
+                // Offset from DEVICE_MARK_BASE to avoid conflict with default nft/iptables marks
+                let mark = DEVICE_MARK_BASE + slot;
 
                 let mut bucket = DeviceBucket::new(curve_rate_bps, snap.bucket_duration_sec);
                 // Compute burst ceiling before using it (otherwise it's 0)
@@ -571,7 +573,6 @@ impl Engine {
                     curve_rate_bps,
                     snap.bucket_duration_sec,
                     snap.tick_interval_sec,
-                    snap.burst_drain_ratio,
                     snap.max_burst_kbit,
                 );
 
@@ -751,7 +752,7 @@ impl Engine {
                 mac: dev.mac.clone(),
                 ip: dev.ip.clone(),
                 hostname: dev.hostname.clone(),
-                mode: dev.bucket.mode().to_string(),
+                mode: dev.bucket.mode(),
                 bucket_bytes: bucket_tokens,
                 bucket_capacity: bucket_cap,
                 bucket_pct,
@@ -776,7 +777,7 @@ impl Engine {
             let burst_ceil = dev.bucket.burst_ceil_kbit();
             let fair_share = dev.fair_share_kbit;
             if dev.turbo.active {
-                ds.mode = "turbo".to_string();
+                ds.mode = crate::model::DeviceMode::Turbo;
                 ds.shaped_down_kbit = None;
                 ds.shaped_up_kbit = None;
                 if let Some(expires) = dev.turbo.expires_at {
@@ -823,7 +824,7 @@ impl Engine {
             throughput: ThroughputState {
                 current_down_bps: inner.last_tick_down * 8 / snap.tick_interval_sec as i64,
                 current_up_bps: inner.last_tick_up * 8 / snap.tick_interval_sec as i64,
-                samples_1h: inner.throughput_samples.clone(),
+                samples_1h: inner.throughput_samples.iter().cloned().collect(),
             },
             dish: inner.dish_status.clone(),
         }

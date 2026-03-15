@@ -154,7 +154,6 @@ export default function QuotaBar({ quota, onMessage }: Props) {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 8 }}>
-          {/* Sync */}
           <div>
             <div style={{ color: "#fff", fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
               <SyncOutlined style={{ marginRight: 6 }} />
@@ -187,7 +186,6 @@ export default function QuotaBar({ quota, onMessage }: Props) {
 
           <div style={{ borderTop: "1px solid #222" }} />
 
-          {/* Adjust */}
           <div>
             <div style={{ color: "#fff", fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
               <EditOutlined style={{ marginRight: 6 }} />
@@ -218,7 +216,6 @@ export default function QuotaBar({ quota, onMessage }: Props) {
 
           <div style={{ borderTop: "1px solid #222" }} />
 
-          {/* Reset */}
           <div>
             <div style={{ color: "#fff", fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
               <DeleteOutlined style={{ marginRight: 6 }} />
