@@ -161,6 +161,7 @@ pub struct DeviceSnapshot {
     pub turbo: bool,
     pub turbo_expires: Option<i64>,
     pub turbo_bytes: i64,
+    pub bucket_refill_bps: i64,
     pub shaped_down_kbit: Option<i32>,
     pub shaped_up_kbit: Option<i32>,
 }
@@ -292,6 +293,7 @@ mod tests {
             turbo: false,
             turbo_expires: None,
             turbo_bytes: 0,
+            bucket_refill_bps: 6250000,
             shaped_down_kbit: None,
             shaped_up_kbit: None,
         };
@@ -299,6 +301,7 @@ mod tests {
         let json = serde_json::to_value(&ds).unwrap();
         assert!(json.get("mac").is_some());
         assert!(json.get("bucket_bytes").is_some());
+        assert!(json.get("bucket_refill_bps").is_some());
         assert!(json.get("bucket_capacity").is_some());
         assert!(json.get("bucket_pct").is_some());
         assert!(json.get("burst_ceil_kbit").is_some());

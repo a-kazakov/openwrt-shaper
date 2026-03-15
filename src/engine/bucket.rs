@@ -15,13 +15,14 @@ pub struct DeviceBucket {
 }
 
 impl DeviceBucket {
-    /// Create a bucket starting in BURST mode with full tokens.
+    /// Create a bucket starting in SUSTAINED mode with empty tokens.
+    /// New devices must earn their burst capacity through the refill cycle.
     pub fn new(curve_rate_bytes_per_sec: i64, duration_sec: i32) -> Self {
         let cap = curve_rate_bytes_per_sec * duration_sec as i64;
         Self {
-            tokens: cap,
+            tokens: 0,
             capacity: cap,
-            mode: DeviceMode::Burst,
+            mode: DeviceMode::Sustained,
             burst_ceil_kbit: 0,
         }
     }
@@ -127,20 +128,28 @@ impl DeviceBucket {
 mod tests {
     use super::*;
 
+    /// Helper: create a full bucket for tests that need one.
+    fn full_bucket(rate: i64, dur: i32) -> DeviceBucket {
+        let mut b = DeviceBucket::new(rate, dur);
+        b.refill(b.capacity()); // fill to capacity
+        b.set_mode(DeviceMode::Burst);
+        b
+    }
+
     #[test]
     fn new_device_bucket() {
         // 50 Mbps = 6250000 bytes/sec, 300s duration
         let b = DeviceBucket::new(6_250_000, 300);
 
         assert_eq!(b.capacity(), 6_250_000 * 300);
-        assert_eq!(b.tokens(), b.capacity());
-        assert_eq!(b.mode(), DeviceMode::Burst);
-        assert!(b.is_full());
+        assert_eq!(b.tokens(), 0, "new devices start empty");
+        assert_eq!(b.mode(), DeviceMode::Sustained, "new devices start sustained");
+        assert!(!b.is_full());
     }
 
     #[test]
     fn drain_and_refill() {
-        let mut b = DeviceBucket::new(6_250_000, 300);
+        let mut b = full_bucket(6_250_000, 300);
         let cap = b.capacity();
 
         // Drain some bytes
@@ -149,7 +158,7 @@ mod tests {
         assert_eq!(b.tokens(), cap - 1_000_000);
 
         // Drain more than available
-        let mut b2 = DeviceBucket::new(100, 1); // 100 byte capacity
+        let mut b2 = full_bucket(100, 1); // 100 byte capacity
         b2.drain(50);
         let drained = b2.drain(100); // only 50 left
         assert_eq!(drained, 50);
@@ -167,7 +176,7 @@ mod tests {
     #[test]
     fn capacity_shrink() {
         // Start with high curve rate
-        let mut b = DeviceBucket::new(6_250_000, 300); // ~1875 MB
+        let mut b = full_bucket(6_250_000, 300); // ~1875 MB
         let initial_cap = b.capacity();
 
         // Simulate curve rate dropping (quota depleting)
@@ -193,10 +202,10 @@ mod tests {
     #[test]
     fn hysteresis() {
         // 50 Mbps = 6250000 bytes/sec, 300s, tick=2s
-        let mut b = DeviceBucket::new(6_250_000, 300);
+        let mut b = full_bucket(6_250_000, 300);
         b.update(6_250_000, 300, 2, 0.10);
 
-        // Start in BURST mode
+        // Start in BURST mode (full bucket)
         assert_eq!(b.mode(), DeviceMode::Burst);
 
         // Drain to below shape_threshold
@@ -228,7 +237,7 @@ mod tests {
     #[test]
     fn burst_ceil() {
         // 50 Mbps = 6250000 bytes/sec, 300s, tick=2s, drain_ratio=0.10
-        let mut b = DeviceBucket::new(6_250_000, 300);
+        let mut b = full_bucket(6_250_000, 300);
         b.update(6_250_000, 300, 2, 0.10);
 
         let ceil = b.burst_ceil_kbit();
@@ -253,8 +262,7 @@ mod tests {
 
     #[test]
     fn burst_ceil_floor() {
-        let mut b = DeviceBucket::new(100, 1); // tiny bucket
-        b.drain(b.tokens()); // empty
+        let mut b = DeviceBucket::new(100, 1); // tiny bucket, starts empty
         b.update(100, 1, 2, 0.10);
 
         let ceil = b.burst_ceil_kbit();
@@ -263,7 +271,7 @@ mod tests {
 
     #[test]
     fn turbo_mode() {
-        let mut b = DeviceBucket::new(6_250_000, 300);
+        let mut b = full_bucket(6_250_000, 300);
         b.set_mode(DeviceMode::Turbo);
 
         // Turbo should not be changed by Update
