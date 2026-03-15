@@ -95,6 +95,18 @@ CTLEOF
     cat > "$work/control/postinst" << 'POSTEOF'
 #!/bin/sh
 mkdir -p /var/lib/slqm
+
+# Allow access to SLQM web UI from LAN
+uci -q delete firewall.slqm_web 2>/dev/null
+uci set firewall.slqm_web=rule
+uci set firewall.slqm_web.name='Allow-SLQM-WebUI'
+uci set firewall.slqm_web.src='lan'
+uci set firewall.slqm_web.dest_port='8275'
+uci set firewall.slqm_web.proto='tcp'
+uci set firewall.slqm_web.target='ACCEPT'
+uci commit firewall
+/etc/init.d/firewall reload 2>/dev/null
+
 /etc/init.d/slqm enable
 /etc/init.d/slqm start
 exit 0
@@ -122,6 +134,10 @@ tc qdisc del dev ifb0 root 2>/dev/null
 ip link del ifb0 2>/dev/null
 # Clean up nftables
 nft delete table inet slqm 2>/dev/null
+# Remove firewall rule
+uci -q delete firewall.slqm_web 2>/dev/null
+uci commit firewall 2>/dev/null
+/etc/init.d/firewall reload 2>/dev/null
 exit 0
 PRERMEOF
     chmod 755 "$work/control/prerm"
