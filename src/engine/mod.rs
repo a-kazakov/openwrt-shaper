@@ -352,6 +352,7 @@ impl Engine {
                 snap.bucket_duration_sec,
                 snap.tick_interval_sec,
                 snap.burst_drain_ratio,
+                snap.max_burst_kbit,
             );
         }
 
@@ -571,6 +572,7 @@ impl Engine {
                     snap.bucket_duration_sec,
                     snap.tick_interval_sec,
                     snap.burst_drain_ratio,
+                    snap.max_burst_kbit,
                 );
 
                 let mut dev = DeviceState {
