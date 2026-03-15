@@ -53,7 +53,11 @@ impl DeviceBucket {
             self.burst_ceil_kbit = 1000;
         }
 
-        self.shape_at = (self.capacity / 4).min(20 * 1_048_576 * tick_sec as i64);
+        // shape_at must be >= max burst drain per tick to prevent overshooting
+        let max_drain_per_tick = (self.capacity as f64 * burst_drain_ratio) as i64;
+        self.shape_at = (self.capacity / 4)
+            .min(20 * 1_048_576 * tick_sec as i64)
+            .max(max_drain_per_tick);
         self.unshape_at = self.shape_at * 3;
         let shape_at = self.shape_at;
         let unshape_at = self.unshape_at;
@@ -212,24 +216,25 @@ mod tests {
 
     #[test]
     fn hysteresis() {
-        // 50 Mbps = 6250000 bytes/sec, 300s, tick=2s
+        // 50 Mbps = 6250000 bytes/sec, 300s, tick=2s, drain_ratio=0.10
+        // capacity = 1875 MB
+        // max_drain_per_tick = 1875 * 0.10 = 187.5 MB
+        // shape_at = max(min(cap/4, 40MB), 187.5MB) = 187.5 MB
+        // unshape_at = 187.5 * 3 = 562.5 MB
         let mut b = full_bucket(6_250_000, 300);
         b.update(6_250_000, 300, 2, 0.10);
 
         // Start in BURST mode (full bucket)
         assert_eq!(b.mode(), DeviceMode::Burst);
 
-        // Drain to below shape_threshold
-        // shape_threshold = min(cap/4, 20*1048576*2) = min(468MB, 40MB) = 40MB
-        // Drain almost everything
+        // Drain to below shape_at
         b.drain(b.tokens());
         b.update(6_250_000, 300, 2, 0.10);
 
         assert_eq!(b.mode(), DeviceMode::Sustained);
 
-        // Refill to dead zone (between shape and unshape thresholds)
-        // unshape_threshold = 40MB * 3 = 120MB
-        b.refill(80 * 1_048_576); // 80 MB - in dead zone
+        // Refill to dead zone (between shape_at=187.5MB and unshape_at=562.5MB)
+        b.refill(300 * 1_048_576); // 300 MB - in dead zone
         b.update(6_250_000, 300, 2, 0.10);
 
         assert_eq!(
@@ -238,8 +243,8 @@ mod tests {
             "in dead zone should stay Sustained"
         );
 
-        // Refill above unshape_threshold
-        b.refill(200 * 1_048_576); // well above 120 MB
+        // Refill above unshape_at
+        b.refill(600 * 1_048_576); // well above 562.5 MB
         b.update(6_250_000, 300, 2, 0.10);
 
         assert_eq!(b.mode(), DeviceMode::Burst);
