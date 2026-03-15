@@ -170,7 +170,11 @@ impl TCController {
     }
 
     /// Change the root class rate on both trees.
-    pub fn update_root_rate(&self, rate_kbit: i32) -> Result<(), String> {
+    /// When `has_turbo` is true, the parent ceil is raised to uncapped
+    /// so turbo devices can exceed the curve rate.
+    pub fn update_root_rate(&self, rate_kbit: i32, has_turbo: bool) -> Result<(), String> {
+        let ceil = if has_turbo { UNCAPPED } else { rate_kbit };
+
         // WAN: update root class 1:1
         self.tc(&[
             "class",
@@ -185,7 +189,7 @@ impl TCController {
             "rate",
             &format!("{rate_kbit}kbit"),
             "ceil",
-            &format!("{rate_kbit}kbit"),
+            &format!("{ceil}kbit"),
         ])?;
         // LAN: update download parent class 1:3
         self.tc(&[
@@ -201,7 +205,7 @@ impl TCController {
             "rate",
             &format!("{rate_kbit}kbit"),
             "ceil",
-            &format!("{rate_kbit}kbit"),
+            &format!("{ceil}kbit"),
         ])
     }
 
