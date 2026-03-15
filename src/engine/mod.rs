@@ -368,7 +368,7 @@ impl Engine {
         // Collect tc updates to avoid borrowing inner.tc while iterating inner.devices
         struct TcUpdate {
             slot: i32,
-            mode: String,
+            mode: crate::model::DeviceMode,
             fair_share: i32,
             burst_ceil: i32,
         }
@@ -383,7 +383,7 @@ impl Engine {
                 if dev.last_mode != crate::model::DeviceMode::Turbo {
                     tc_updates.push(TcUpdate {
                         slot: dev.slot,
-                        mode: "turbo".to_string(),
+                        mode: crate::model::DeviceMode::Turbo,
                         fair_share: fair_share_kbit,
                         burst_ceil: 0,
                     });
@@ -402,7 +402,7 @@ impl Engine {
             if mode_changed || ceil_changed {
                 tc_updates.push(TcUpdate {
                     slot: dev.slot,
-                    mode: mode.to_string(),
+                    mode,
                     fair_share: fair_share_kbit,
                     burst_ceil,
                 });
@@ -415,7 +415,7 @@ impl Engine {
         for update in tc_updates {
             inner.tc.set_device_mode(
                 update.slot,
-                &update.mode,
+                update.mode,
                 update.fair_share,
                 update.burst_ceil,
                 snap.down_up_ratio,
@@ -752,7 +752,7 @@ impl Engine {
                 mac: dev.mac.clone(),
                 ip: dev.ip.clone(),
                 hostname: dev.hostname.clone(),
-                mode: dev.bucket.mode().to_string(),
+                mode: dev.bucket.mode(),
                 bucket_bytes: bucket_tokens,
                 bucket_capacity: bucket_cap,
                 bucket_pct,
@@ -777,7 +777,7 @@ impl Engine {
             let burst_ceil = dev.bucket.burst_ceil_kbit();
             let fair_share = dev.fair_share_kbit;
             if dev.turbo.active {
-                ds.mode = "turbo".to_string();
+                ds.mode = crate::model::DeviceMode::Turbo;
                 ds.shaped_down_kbit = None;
                 ds.shaped_up_kbit = None;
                 if let Some(expires) = dev.turbo.expires_at {
