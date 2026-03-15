@@ -28,7 +28,6 @@ struct DeviceState {
     mac: String,
     ip: String,
     hostname: String,
-    #[allow(dead_code)]
     source: String,
     slot: i32,
     mark: i32,
@@ -351,7 +350,6 @@ impl Engine {
                 curve_rate_bps,
                 snap.bucket_duration_sec,
                 snap.tick_interval_sec,
-                snap.burst_drain_ratio,
                 snap.max_burst_kbit,
             );
         }
@@ -571,7 +569,6 @@ impl Engine {
                     curve_rate_bps,
                     snap.bucket_duration_sec,
                     snap.tick_interval_sec,
-                    snap.burst_drain_ratio,
                     snap.max_burst_kbit,
                 );
 
