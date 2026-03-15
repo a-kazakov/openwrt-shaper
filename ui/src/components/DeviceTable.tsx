@@ -65,7 +65,7 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
 
   const showMark = device.mode !== "turbo";
   const markPct = device.mode === "burst" ? shapePct : unshapePct;
-  const markColor = device.mode === "burst" ? "#fbbf24" : "#60a5fa";
+  const markColor = device.mode === "burst" ? "#000000" : "#ffffff";
 
   return (
     <div
