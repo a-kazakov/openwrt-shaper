@@ -164,6 +164,8 @@ pub struct DeviceSnapshot {
     pub bucket_refill_bps: i64,
     pub shaped_down_kbit: Option<i32>,
     pub shaped_up_kbit: Option<i32>,
+    pub bucket_shape_at: i64,
+    pub bucket_unshape_at: i64,
 }
 
 /// Request body for POST /api/v1/sync.
@@ -296,6 +298,8 @@ mod tests {
             bucket_refill_bps: 6250000,
             shaped_down_kbit: None,
             shaped_up_kbit: None,
+            bucket_shape_at: 1250,
+            bucket_unshape_at: 3750,
         };
 
         let json = serde_json::to_value(&ds).unwrap();

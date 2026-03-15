@@ -45,6 +45,8 @@ export interface DeviceSnapshot {
   bucket_refill_bps: number;
   shaped_down_kbit: number | null;
   shaped_up_kbit: number | null;
+  bucket_shape_at: number;
+  bucket_unshape_at: number;
 }
 
 export interface ThroughputSample {
