@@ -95,22 +95,6 @@ CTLEOF
     cat > "$work/control/postinst" << 'POSTEOF'
 #!/bin/sh
 mkdir -p /var/lib/slqm
-
-# Extract listen port from config (default 8275)
-PORT=$(grep listen_addr /etc/slqm/config.json 2>/dev/null | grep -o '[0-9]*"' | tr -d '"')
-[ -z "$PORT" ] && PORT=8275
-
-# Allow access to SLQM web UI from all interfaces
-cat > /etc/firewall.slqm << EOF
-iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
-ip6tables -I INPUT -p tcp --dport $PORT -j ACCEPT 2>/dev/null
-EOF
-uci -q delete firewall.slqm_include
-uci set firewall.slqm_include=include
-uci set firewall.slqm_include.path='/etc/firewall.slqm'
-uci commit firewall
-/etc/init.d/firewall reload 2>/dev/null
-
 /etc/init.d/slqm enable
 /etc/init.d/slqm start
 exit 0
@@ -138,12 +122,13 @@ tc qdisc del dev ifb0 root 2>/dev/null
 ip link del ifb0 2>/dev/null
 # Clean up nftables
 nft delete table inet slqm 2>/dev/null
-# Remove firewall rule
+# Clean up firewall (fallback + legacy includes)
+PORT=$(grep listen_addr /etc/slqm/config.json 2>/dev/null | grep -o '[0-9]*"' | tr -d '"')
+[ -n "$PORT" ] && iptables -D INPUT -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null
 rm -f /etc/firewall.slqm
-uci -q delete firewall.slqm_include
-uci -q delete firewall.slqm_web
+uci -q delete firewall.slqm_include 2>/dev/null
+uci -q delete firewall.slqm_web 2>/dev/null
 uci commit firewall 2>/dev/null
-/etc/init.d/firewall reload 2>/dev/null
 exit 0
 PRERMEOF
     chmod 755 "$work/control/prerm"

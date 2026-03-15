@@ -130,6 +130,10 @@ func main() {
 		log.Fatalf("listen %s: %v", snap.ListenAddr, err)
 	}
 
+	// Open the listen port in iptables (fw3 blocks non-standard ports)
+	listenPort := netctl.ExtractPort(snap.ListenAddr)
+	netctl.OpenFirewallPort(listenPort)
+
 	// Start all goroutines
 	go func() {
 		log.Printf("HTTP server listening on %s", ln.Addr())
@@ -174,6 +178,9 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	server.Shutdown(shutdownCtx)
+
+	// Close firewall port
+	netctl.CloseFirewallPort(listenPort)
 
 	log.Println("shutdown complete")
 }
