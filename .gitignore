@@ -3,3 +3,4 @@ coverage.out
 coverage.html
 *.ipk
 poc-rust/target/
+target/
