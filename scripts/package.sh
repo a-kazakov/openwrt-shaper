@@ -40,7 +40,7 @@ for suffix in arm64 armv7 mipsle; do
   "ifb_iface": "ifb0",
   "dish_addr": "192.168.100.1:9200",
   "dish_poll_interval_sec": 30,
-  "listen_addr": "0.0.0.0:8275",
+  "listen_addr": ":8275",
   "billing_reset_day": 1,
   "monthly_quota_gb": 20,
   "curve_shape": 0.40,

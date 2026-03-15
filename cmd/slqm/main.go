@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -123,21 +122,16 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
-	// Explicitly bind to IPv4 — OpenWrt's iptables (fw3) blocks IPv4 traffic
-	// to ports on Go's default dual-stack IPv6 socket (:::port).
-	ln, err := net.Listen("tcp4", snap.ListenAddr)
-	if err != nil {
-		log.Fatalf("listen %s: %v", snap.ListenAddr, err)
-	}
-
-	// Open the listen port in iptables (fw3 blocks non-standard ports)
+	// Open the listen port in iptables (fw3 blocks non-standard ports).
+	// Uses dual-stack listener (IPv6 + IPv4-mapped) since IPv6 works
+	// reliably on OpenWrt while IPv4 may be blocked by fw3.
 	listenPort := netctl.ExtractPort(snap.ListenAddr)
 	netctl.OpenFirewallPort(listenPort)
 
 	// Start all goroutines
 	go func() {
-		log.Printf("HTTP server listening on %s", ln.Addr())
-		if err := server.Serve(ln); err != http.ErrServerClosed {
+		log.Printf("HTTP server listening on %s", snap.ListenAddr)
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatalf("http server: %v", err)
 		}
 	}()
