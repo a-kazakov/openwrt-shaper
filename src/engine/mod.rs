@@ -766,20 +766,16 @@ impl Engine {
             } else {
                 match dev.bucket.mode() {
                     crate::model::DeviceMode::Burst => {
-                        let mut down_ceil = (burst_ceil as f64 * snap.down_up_ratio) as i32;
-                        let mut up_ceil = burst_ceil - down_ceil;
-                        if down_ceil < snap.min_rate_kbit { down_ceil = snap.min_rate_kbit; }
-                        if up_ceil < snap.min_rate_kbit { up_ceil = snap.min_rate_kbit; }
-                        ds.shaped_down_kbit = Some(down_ceil);
-                        ds.shaped_up_kbit = Some(up_ceil);
+                        let down_ceil = (burst_ceil as f64 * snap.down_up_ratio) as i32;
+                        let up_ceil = burst_ceil - down_ceil;
+                        ds.shaped_down_kbit = Some(down_ceil.max(1));
+                        ds.shaped_up_kbit = Some(up_ceil.max(1));
                     }
                     crate::model::DeviceMode::Sustained => {
-                        let mut down_ceil = (fair_share as f64 * snap.down_up_ratio) as i32;
-                        let mut up_ceil = fair_share - down_ceil;
-                        if down_ceil < snap.min_rate_kbit { down_ceil = snap.min_rate_kbit; }
-                        if up_ceil < snap.min_rate_kbit { up_ceil = snap.min_rate_kbit; }
-                        ds.shaped_down_kbit = Some(down_ceil);
-                        ds.shaped_up_kbit = Some(up_ceil);
+                        let down_ceil = (fair_share as f64 * snap.down_up_ratio) as i32;
+                        let up_ceil = fair_share - down_ceil;
+                        ds.shaped_down_kbit = Some(down_ceil.max(1));
+                        ds.shaped_up_kbit = Some(up_ceil.max(1));
                     }
                     crate::model::DeviceMode::Turbo => {}
                 }
