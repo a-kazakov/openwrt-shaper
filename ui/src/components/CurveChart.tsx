@@ -74,9 +74,9 @@ export default function CurveChart({ curve, quota, config }: Props) {
       else ctx.lineTo(x, y);
     }
 
-    // Area fill
-    ctx.lineTo(pad.left + pw, pad.top + ph);
+    // Area fill — curve ends at left edge, close along bottom
     ctx.lineTo(pad.left, pad.top + ph);
+    ctx.lineTo(pad.left + pw, pad.top + ph);
     ctx.closePath();
     ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
     ctx.fill();
