@@ -755,10 +755,36 @@ impl Engine {
                 bucket_shape_at: dev.bucket.thresholds().0,
                 bucket_unshape_at: dev.bucket.thresholds().1,
             };
+
+            // Compute actual tc ceil values per mode
+            let burst_ceil = dev.bucket.burst_ceil_kbit();
+            let fair_share = dev.fair_share_kbit;
             if dev.turbo.active {
                 ds.mode = "turbo".to_string();
+                ds.shaped_down_kbit = None;
+                ds.shaped_up_kbit = None;
                 if let Some(expires) = dev.turbo.expires_at {
                     ds.turbo_expires = Some(expires.timestamp());
+                }
+            } else {
+                match dev.bucket.mode() {
+                    crate::model::DeviceMode::Burst => {
+                        let mut down_ceil = (burst_ceil as f64 * snap.down_up_ratio) as i32;
+                        let mut up_ceil = burst_ceil - down_ceil;
+                        if down_ceil < snap.min_rate_kbit { down_ceil = snap.min_rate_kbit; }
+                        if up_ceil < snap.min_rate_kbit { up_ceil = snap.min_rate_kbit; }
+                        ds.shaped_down_kbit = Some(down_ceil);
+                        ds.shaped_up_kbit = Some(up_ceil);
+                    }
+                    crate::model::DeviceMode::Sustained => {
+                        let mut down_ceil = (fair_share as f64 * snap.down_up_ratio) as i32;
+                        let mut up_ceil = fair_share - down_ceil;
+                        if down_ceil < snap.min_rate_kbit { down_ceil = snap.min_rate_kbit; }
+                        if up_ceil < snap.min_rate_kbit { up_ceil = snap.min_rate_kbit; }
+                        ds.shaped_down_kbit = Some(down_ceil);
+                        ds.shaped_up_kbit = Some(up_ceil);
+                    }
+                    crate::model::DeviceMode::Turbo => {}
                 }
             }
             devices.push(ds);

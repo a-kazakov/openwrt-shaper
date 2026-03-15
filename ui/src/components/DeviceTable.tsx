@@ -255,11 +255,16 @@ function DeviceCard({
           <span>{device.bucket_pct}% · {bucketMB}/{capacityMB}</span>
         </div>
         <BucketBar device={device} />
-        {status && (
-          <div style={{ color: status.color, fontSize: 11, marginTop: 4 }}>
-            {status.text}
-          </div>
-        )}
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11 }}>
+          <span style={{ color: status?.color ?? "#555" }}>
+            {status?.text ?? ""}
+          </span>
+          {device.shaped_down_kbit != null && device.shaped_up_kbit != null && (
+            <span style={{ color: "#555" }}>
+              Limit: {formatRateRound(device.shaped_down_kbit * 1000)}&#9660; / {formatRateRound(device.shaped_up_kbit * 1000)}&#9650;
+            </span>
+          )}
+        </div>
       </div>
 
       <div
