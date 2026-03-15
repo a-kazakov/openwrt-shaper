@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Tag, Progress, Button, Card } from "antd";
+import { Progress, Button, Card } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
 import { formatBytes, formatRate, formatDuration, formatMB } from "../utils";
@@ -137,8 +137,7 @@ function DeviceCard({
           <div style={{ color: "#fff", fontWeight: 500, fontSize: 15 }}>{name}</div>
           <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{device.mac}</div>
         </div>
-        <Tag
-          bordered={false}
+        <span
           style={{
             borderRadius: 4,
             fontWeight: 600,
@@ -147,11 +146,13 @@ function DeviceCard({
             letterSpacing: "0.05em",
             border: `1px solid ${modeColor(device.mode)}`,
             color: modeColor(device.mode),
-            background: "transparent",
+            padding: "2px 8px",
+            lineHeight: "20px",
+            display: "inline-block",
           }}
         >
           {device.mode}
-        </Tag>
+        </span>
       </div>
 
       <div style={{ marginBottom: 8 }}>
