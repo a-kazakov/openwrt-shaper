@@ -695,7 +695,7 @@ impl Engine {
             .filter(|d| !d.bucket.is_full())
             .count()
             .max(1) as i64;
-        let refill_bps_per_device = curve_rate_bps / non_full_count;
+        let refill_bps_per_device = curve_rate_bps * 8 / non_full_count;
 
         let mut devices = Vec::with_capacity(inner.devices.len());
         for dev in inner.devices.values() {

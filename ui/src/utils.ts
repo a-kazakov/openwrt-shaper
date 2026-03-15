@@ -22,6 +22,11 @@ export function formatRateKbit(kbit: number | null | undefined): string {
   return (kbit / 1000).toFixed(1) + " Mbps";
 }
 
+export function formatMB(bytes: number): string {
+  const mb = Math.round(bytes / 1048576);
+  return mb + " MB";
+}
+
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || seconds <= 0) return "--";
   const d = Math.floor(seconds / 86400);

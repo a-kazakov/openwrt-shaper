@@ -9,10 +9,15 @@ import QuotaBar from "./components/QuotaBar";
 import CurveChart from "./components/CurveChart";
 import ThroughputChart from "./components/ThroughputChart";
 import DeviceTable from "./components/DeviceTable";
-import Adjustments from "./components/Adjustments";
 import ConfigDrawer from "./components/ConfigDrawer";
 
 const { Content } = Layout;
+
+function showMessage(text: string, type: "success" | "error" | "info") {
+  if (type === "success") message.success(text);
+  else if (type === "error") message.error(text);
+  else message.info(text);
+}
 
 export default function App() {
   const { state, connected } = useWebSocket();
@@ -114,32 +119,17 @@ export default function App() {
 
         {state && (
           <>
-            <StatsCards
-              quota={state.quota}
-              curve={state.curve}
-              throughput={state.throughput}
-            />
-            <QuotaBar quota={state.quota} />
+            <QuotaBar quota={state.quota} onMessage={showMessage} />
+            <ThroughputChart throughput={state.throughput} />
+            <StatsCards curve={state.curve} />
             <CurveChart
               curve={state.curve}
               quota={state.quota}
               config={config}
             />
-            <ThroughputChart throughput={state.throughput} />
             <DeviceTable
               devices={state.devices}
-              onMessage={(text, type) => {
-                if (type === "success") message.success(text);
-                else if (type === "error") message.error(text);
-                else message.info(text);
-              }}
-            />
-            <Adjustments
-              onMessage={(text, type) => {
-                if (type === "success") message.success(text);
-                else if (type === "error") message.error(text);
-                else message.info(text);
-              }}
+              onMessage={showMessage}
             />
           </>
         )}

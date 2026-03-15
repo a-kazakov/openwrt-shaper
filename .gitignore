@@ -4,3 +4,4 @@ coverage.html
 *.ipk
 target/
 ui/node_modules/
+web/
