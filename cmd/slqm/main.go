@@ -159,6 +159,54 @@ func main() {
 		}()
 	}
 
+	// IPv4 diagnostic: test raw TCP accept on a random port
+	go func() {
+		time.Sleep(2 * time.Second)
+		rawLn, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			log.Printf("IPv4 DIAG: raw listen failed: %v", err)
+			return
+		}
+		rawAddr := rawLn.Addr().String()
+		log.Printf("IPv4 DIAG: raw listener on %s", rawAddr)
+
+		accepted := make(chan struct{})
+		go func() {
+			c, err := rawLn.Accept()
+			if err != nil {
+				log.Printf("IPv4 DIAG: raw accept failed: %v", err)
+				return
+			}
+			log.Printf("IPv4 DIAG: raw accept OK from %s", c.RemoteAddr())
+			c.Write([]byte("hello"))
+			c.Close()
+			close(accepted)
+		}()
+
+		time.Sleep(100 * time.Millisecond)
+		c, err := net.DialTimeout("tcp4", rawAddr, 5*time.Second)
+		if err != nil {
+			log.Printf("IPv4 DIAG: raw dial to %s failed: %v", rawAddr, err)
+		} else {
+			buf := make([]byte, 16)
+			n, _ := c.Read(buf)
+			log.Printf("IPv4 DIAG: raw dial OK, got %q", string(buf[:n]))
+			c.Close()
+		}
+
+		<-accepted
+		rawLn.Close()
+
+		// Now test the actual HTTP listener
+		c2, err := net.DialTimeout("tcp4", "127.0.0.1:"+listenPort, 5*time.Second)
+		if err != nil {
+			log.Printf("IPv4 DIAG: HTTP dial to 127.0.0.1:%s failed: %v", listenPort, err)
+		} else {
+			log.Printf("IPv4 DIAG: HTTP dial to 127.0.0.1:%s OK", listenPort)
+			c2.Close()
+		}
+	}()
+
 	stopWS := make(chan struct{})
 	go hub.Run(stopWS)
 
