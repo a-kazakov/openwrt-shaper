@@ -24,6 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test
 
       - name: Clippy
         run: cargo clippy -- -D warnings
@@ -60,7 +62,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: cross-${{ matrix.target }}
+          shared-key: ci-cross-${{ matrix.target }}
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross

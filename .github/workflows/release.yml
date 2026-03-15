@@ -28,6 +28,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-test
+          save-if: false
 
       - name: Clippy
         run: cargo clippy -- -D warnings
@@ -56,7 +59,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: cross-release
+          shared-key: ci-cross-aarch64-unknown-linux-musl
+          save-if: false
+          cache-all-crates: true
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
