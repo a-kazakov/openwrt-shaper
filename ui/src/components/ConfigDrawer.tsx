@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Drawer, Form, InputNumber, Input, Button, Slider, Spin, Divider } from "antd";
+import { Drawer, Form, InputNumber, Input, Button, Slider, Spin, Divider, Tooltip } from "antd";
 import { MinusOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ConfigValues } from "../types";
 import { getConfig, updateConfig } from "../api";
@@ -351,11 +351,15 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
 
           <div style={{ marginTop: 12, marginBottom: 8 }}>
             <div style={derivStyle}>
-              <span>Burn {quotaGb} GB at max</span>
+              <Tooltip title="How long it would take to use all your quota if traffic followed the curve continuously. Accounts for the rate dropping as quota depletes.">
+                <span style={{ borderBottom: "1px dashed #555", cursor: "help" }}>Burn {quotaGb} GB at max</span>
+              </Tooltip>
               <span style={{ color: "#fff" }}>{burnLabel}</span>
             </div>
             <div style={derivStyle}>
-              <span>Max consumption at min rate</span>
+              <Tooltip title="How much data you'd consume per hour if throttled to the minimum rate. This is the worst-case hourly usage when quota is nearly exhausted.">
+                <span style={{ borderBottom: "1px dashed #555", cursor: "help" }}>Max consumption at min rate</span>
+              </Tooltip>
               <span style={{ color: "#fff" }}>{gbPerHrAtMin.toFixed(2)} GB/hr</span>
             </div>
           </div>
