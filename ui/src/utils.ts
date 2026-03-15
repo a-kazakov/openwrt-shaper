@@ -46,6 +46,46 @@ export function formatRateRound(bps: number | null | undefined): string {
   return Math.round(bps / 1000000000) + " Gb/s";
 }
 
+/** Format down/up bps pair into a compact string with shared unit: "▼4.0 / ▲1.0 Mb/s" */
+export function formatLimitPair(downBps: number, upBps: number): string {
+  const maxVal = Math.max(downBps, upBps);
+  let unit: string;
+  let div: number;
+  if (maxVal >= 1000000000) {
+    unit = "Gb/s";
+    div = 1000000000;
+  } else if (maxVal >= 1000000) {
+    unit = "Mb/s";
+    div = 1000000;
+  } else {
+    unit = "Kb/s";
+    div = 1000;
+  }
+  const fmt = (v: number) => {
+    const n = v / div;
+    return n < 10 ? n.toFixed(1) : String(Math.round(n));
+  };
+  return `\u{25BC}${fmt(downBps)} / \u{25B2}${fmt(upBps)} ${unit}`;
+}
+
+// UI uses "throttled" instead of backend's "sustained" for user clarity
+export function modeLabel(mode: string): string {
+  return mode === "sustained" ? "throttled" : mode;
+}
+
+export function modeColor(mode: string): string {
+  switch (mode) {
+    case "burst":
+      return "#60a5fa";
+    case "sustained":
+      return "#fbbf24";
+    case "turbo":
+      return "#4ade80";
+    default:
+      return "#666";
+  }
+}
+
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || seconds <= 0) return "--";
   const d = Math.floor(seconds / 86400);

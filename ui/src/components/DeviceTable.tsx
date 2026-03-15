@@ -2,52 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { Button, Card, Spin } from "antd";
 import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
-import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound } from "../utils";
+import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound, formatLimitPair, modeLabel, modeColor } from "../utils";
 import { enableTurbo, cancelTurbo } from "../api";
-
-/** Format down/up bps pair into a compact string with shared unit: "▼4.0 / ▲1.0 Mb/s" */
-function formatLimitPair(downBps: number, upBps: number): string {
-  const maxVal = Math.max(downBps, upBps);
-  let unit: string;
-  let div: number;
-  if (maxVal >= 1000000000) {
-    unit = "Gb/s";
-    div = 1000000000;
-  } else if (maxVal >= 1000000) {
-    unit = "Mb/s";
-    div = 1000000;
-  } else {
-    unit = "Kb/s";
-    div = 1000;
-  }
-  const fmt = (v: number) => {
-    const n = v / div;
-    return n < 10 ? n.toFixed(1) : String(Math.round(n));
-  };
-  return `\u{25BC}${fmt(downBps)} / \u{25B2}${fmt(upBps)} ${unit}`;
-}
 
 interface Props {
   devices: DeviceSnapshot[];
   onMessage: (text: string, type: "success" | "error" | "info") => void;
-}
-
-// UI uses "throttled" instead of backend's "sustained" for user clarity
-function modeLabel(mode: string): string {
-  return mode === "sustained" ? "throttled" : mode;
-}
-
-function modeColor(mode: string): string {
-  switch (mode) {
-    case "burst":
-      return "#60a5fa";
-    case "sustained":
-      return "#fbbf24";
-    case "turbo":
-      return "#4ade80";
-    default:
-      return "#666";
-  }
 }
 
 function bucketColor(pct: number): string {
