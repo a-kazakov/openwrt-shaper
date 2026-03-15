@@ -603,7 +603,7 @@ impl Engine {
 
                 // Ensure HTB trees exist (may have been reset by network restart)
                 let rate_kbit = inner.curve.rate(remaining);
-                if let Err(e) = inner.tc.setup_htb(rate_kbit) {
+                if let Err(e) = inner.tc.ensure_htb(rate_kbit) {
                     error!("engine: re-setup HTB trees: {e}");
                 }
 

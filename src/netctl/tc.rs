@@ -107,6 +107,24 @@ impl TCController {
         Ok(())
     }
 
+    /// Check if the HTB root qdisc exists on the WAN interface.
+    pub fn htb_exists(&self) -> bool {
+        if let Ok(output) = run_cmd("tc", &["qdisc", "show", "dev", &self.wan_iface]) {
+            output.contains("htb")
+        } else {
+            false
+        }
+    }
+
+    /// Re-create HTB trees only if they are missing.
+    pub fn ensure_htb(&self, rate_kbit: i32) -> Result<(), String> {
+        if !self.htb_exists() {
+            info!("HTB trees missing, re-creating");
+            self.setup_htb(rate_kbit)?;
+        }
+        Ok(())
+    }
+
     /// Create a class for a device in both HTB trees.
     pub fn add_device_class(
         &self,
