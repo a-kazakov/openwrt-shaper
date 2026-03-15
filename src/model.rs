@@ -109,7 +109,7 @@ pub struct ThroughputSample {
 pub struct ThroughputState {
     pub current_down_bps: i64,
     pub current_up_bps: i64,
-    pub samples_1m: Vec<ThroughputSample>,
+    pub samples_1h: Vec<ThroughputSample>,
 }
 
 /// Starlink dish status.
@@ -246,7 +246,7 @@ mod tests {
             throughput: ThroughputState {
                 current_down_bps: 0,
                 current_up_bps: 0,
-                samples_1m: vec![],
+                samples_1h: vec![],
             },
             dish: None,
         };
@@ -272,7 +272,7 @@ mod tests {
 
         let throughput = json.get("throughput").unwrap();
         assert!(throughput.get("current_down_bps").is_some());
-        assert!(throughput.get("samples_1m").is_some());
+        assert!(throughput.get("samples_1h").is_some());
     }
 
     #[test]
@@ -366,7 +366,7 @@ mod tests {
             throughput: ThroughputState {
                 current_down_bps: 0,
                 current_up_bps: 0,
-                samples_1m: vec![],
+                samples_1h: vec![],
             },
             dish: None,
         };

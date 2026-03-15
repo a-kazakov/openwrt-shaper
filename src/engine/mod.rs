@@ -440,8 +440,8 @@ impl Engine {
             up_bps: tick_up_total * 8 / snap.tick_interval_sec as i64,
         };
         inner.throughput_samples.push(sample);
-        // Keep last 5 minutes of samples
-        let max_samples = 300 / snap.tick_interval_sec as usize;
+        // Keep last 1 hour of samples
+        let max_samples = 3600 / snap.tick_interval_sec as usize;
         if inner.throughput_samples.len() > max_samples {
             let start = inner.throughput_samples.len() - max_samples;
             inner.throughput_samples = inner.throughput_samples[start..].to_vec();
@@ -748,13 +748,6 @@ impl Engine {
         }
 
         let curve_rate = inner.curve.rate(remaining);
-        let count = 60 / snap.tick_interval_sec as usize;
-        let samples_start = if inner.throughput_samples.len() > count {
-            inner.throughput_samples.len() - count
-        } else {
-            0
-        };
-
         StateSnapshot {
             ts: Utc::now().timestamp(),
             quota: QuotaState {
@@ -775,7 +768,7 @@ impl Engine {
             throughput: ThroughputState {
                 current_down_bps: inner.last_tick_down * 8 / snap.tick_interval_sec as i64,
                 current_up_bps: inner.last_tick_up * 8 / snap.tick_interval_sec as i64,
-                samples_1m: inner.throughput_samples[samples_start..].to_vec(),
+                samples_1h: inner.throughput_samples.clone(),
             },
             dish: inner.dish_status.clone(),
         }

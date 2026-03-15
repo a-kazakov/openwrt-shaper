@@ -27,6 +27,16 @@ export function formatMB(bytes: number): string {
   return mb + " MB";
 }
 
+/** Convert bits/sec to GB/hr and format. */
+export function formatGBperHour(bps: number | null | undefined): string {
+  if (bps == null) return "--";
+  const gbPerHour = (bps / 8) * 3600 / 1073741824;
+  if (gbPerHour < 0.01) return "0 GB/hr";
+  if (gbPerHour < 1) return gbPerHour.toFixed(2) + " GB/hr";
+  if (gbPerHour < 10) return gbPerHour.toFixed(1) + " GB/hr";
+  return Math.round(gbPerHour) + " GB/hr";
+}
+
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || seconds <= 0) return "--";
   const d = Math.floor(seconds / 86400);

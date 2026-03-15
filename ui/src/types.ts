@@ -58,7 +58,7 @@ export interface ThroughputSample {
 export interface ThroughputState {
   current_down_bps: number;
   current_up_bps: number;
-  samples_1m: ThroughputSample[];
+  samples_1h: ThroughputSample[];
 }
 
 export interface DishStatus {

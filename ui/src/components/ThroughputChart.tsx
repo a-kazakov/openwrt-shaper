@@ -1,12 +1,12 @@
 import { useRef, useEffect, useCallback } from "react";
 import type { ThroughputState } from "../types";
-import { formatRate } from "../utils";
+import { formatGBperHour } from "../utils";
 
 interface Props {
   throughput: ThroughputState;
 }
 
-function Sparkline({ samples }: { samples: ThroughputState["samples_1m"] }) {
+function Sparkline({ samples }: { samples: ThroughputState["samples_1h"] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const draw = useCallback(() => {
@@ -125,17 +125,19 @@ export default function ThroughputChart({ throughput }: Props) {
         padding: 14,
         position: "relative",
         overflow: "hidden",
-        minHeight: 72,
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
       }}
     >
-      <Sparkline samples={throughput.samples_1m} />
+      <Sparkline samples={throughput.samples_1h} />
       <div style={{ position: "relative", zIndex: 1, display: "flex", gap: 20, alignItems: "baseline" }}>
         <div>
           <div style={{ color: "#666", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>
             Down
           </div>
           <div style={{ color: "#60a5fa", fontSize: 22, fontWeight: 600, lineHeight: 1.2 }}>
-            {formatRate(throughput.current_down_bps)}
+            {formatGBperHour(throughput.current_down_bps)}
           </div>
         </div>
         <div>
@@ -143,7 +145,7 @@ export default function ThroughputChart({ throughput }: Props) {
             Up
           </div>
           <div style={{ color: "#4ade80", fontSize: 22, fontWeight: 600, lineHeight: 1.2 }}>
-            {formatRate(throughput.current_up_bps)}
+            {formatGBperHour(throughput.current_up_bps)}
           </div>
         </div>
       </div>
