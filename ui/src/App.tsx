@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Layout, message } from "antd";
+import { Layout, message, Row, Col } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { useWebSocket } from "./useWebSocket";
 import { getConfig } from "./api";
 import type { ConfigValues } from "./types";
-import StatsCards from "./components/StatsCards";
 import QuotaBar from "./components/QuotaBar";
 import CurveChart from "./components/CurveChart";
 import ThroughputChart from "./components/ThroughputChart";
@@ -119,9 +118,14 @@ export default function App() {
 
         {state && (
           <>
-            <QuotaBar quota={state.quota} onMessage={showMessage} />
-            <ThroughputChart throughput={state.throughput} />
-            <StatsCards curve={state.curve} />
+            <Row gutter={[10, 10]}>
+              <Col xs={24} md={16}>
+                <QuotaBar quota={state.quota} onMessage={showMessage} />
+              </Col>
+              <Col xs={24} md={8}>
+                <ThroughputChart throughput={state.throughput} />
+              </Col>
+            </Row>
             <CurveChart
               curve={state.curve}
               quota={state.quota}

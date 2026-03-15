@@ -90,7 +90,7 @@ export default function QuotaBar({ quota, onMessage }: Props) {
           border: "1px solid #222",
           borderRadius: 8,
           padding: 16,
-          marginTop: 10,
+          height: "100%",
         }}
       >
         <div
