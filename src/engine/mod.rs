@@ -195,39 +195,40 @@ impl Engine {
 
     /// Run the engine loop with tick, save, and device scan intervals.
     pub async fn run(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let snap = {
-            let inner = self.inner.read().unwrap();
-            inner.cfg.snapshot()
-        };
-
-        let tick_interval =
-            tokio::time::Duration::from_secs(snap.tick_interval_sec as u64);
-        let save_interval =
-            tokio::time::Duration::from_secs(snap.save_interval_sec as u64);
-        let scan_interval =
-            tokio::time::Duration::from_secs(snap.device_scan_interval_sec as u64);
-
-        let mut tick_timer = tokio::time::interval(tick_interval);
-        let mut save_timer = tokio::time::interval(save_interval);
-        let mut scan_timer = tokio::time::interval(scan_interval);
-
         // Initial device scan
         self.scan_devices();
 
+        let mut last_save = tokio::time::Instant::now();
+        let mut last_scan = tokio::time::Instant::now();
+
         loop {
+            // Re-read intervals from config each iteration (hot-reloadable)
+            let snap = {
+                let inner = self.inner.read().unwrap();
+                inner.cfg.snapshot()
+            };
+            let tick_dur =
+                tokio::time::Duration::from_millis(snap.tick_interval_sec as u64 * 1000);
+            let save_dur =
+                tokio::time::Duration::from_secs(snap.save_interval_sec as u64);
+            let scan_dur =
+                tokio::time::Duration::from_secs(snap.device_scan_interval_sec as u64);
+
             tokio::select! {
                 _ = shutdown.changed() => {
                     self.shutdown();
                     return;
                 }
-                _ = tick_timer.tick() => {
+                _ = tokio::time::sleep(tick_dur) => {
                     self.tick();
-                }
-                _ = save_timer.tick() => {
-                    self.persist();
-                }
-                _ = scan_timer.tick() => {
-                    self.scan_devices();
+                    if last_save.elapsed() >= save_dur {
+                        self.persist();
+                        last_save = tokio::time::Instant::now();
+                    }
+                    if last_scan.elapsed() >= scan_dur {
+                        self.scan_devices();
+                        last_scan = tokio::time::Instant::now();
+                    }
                 }
             }
         }
