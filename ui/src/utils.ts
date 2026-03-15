@@ -1,3 +1,5 @@
+import { colors } from "./theme";
+
 export function formatBytes(b: number | null | undefined): string {
   if (b == null) return "--";
   const abs = Math.abs(b);
@@ -76,13 +78,13 @@ export function modeLabel(mode: string): string {
 export function modeColor(mode: string): string {
   switch (mode) {
     case "burst":
-      return "#60a5fa";
+      return colors.chartDown;
     case "sustained":
-      return "#fbbf24";
+      return colors.warning;
     case "turbo":
-      return "#4ade80";
+      return colors.success;
     default:
-      return "#666";
+      return colors.textMuted;
   }
 }
 

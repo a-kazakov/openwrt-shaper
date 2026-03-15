@@ -3,6 +3,7 @@ import { Button, Card, Spin } from "antd";
 import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
 import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound, formatLimitPair, modeLabel, modeColor } from "../utils";
+import { colors } from "../theme";
 import { enableTurbo, cancelTurbo } from "../api";
 
 interface Props {
@@ -11,9 +12,9 @@ interface Props {
 }
 
 function bucketColor(pct: number): string {
-  if (pct <= 10) return "#ef4444";
-  if (pct <= 30) return "#fbbf24";
-  return "#4ade80";
+  if (pct <= 10) return colors.danger;
+  if (pct <= 30) return colors.warning;
+  return colors.success;
 }
 
 function bucketStatus(device: DeviceSnapshot): { text: string; color: string } | null {
@@ -22,16 +23,16 @@ function bucketStatus(device: DeviceSnapshot): { text: string; color: string } |
   const net = refillBps - deviceSpeedBps;
 
   if (device.bucket_pct >= 100 && deviceSpeedBps === 0) {
-    return { text: "Full", color: "#4ade80" };
+    return { text: "Full", color: colors.success };
   }
   if (device.bucket_pct <= 0 && refillBps === 0) {
-    return { text: "Empty", color: "#ef4444" };
+    return { text: "Empty", color: colors.danger };
   }
   if (net > 0) {
-    return { text: `Refilling at ${formatRate(net)}`, color: "#4ade80" };
+    return { text: `Refilling at ${formatRate(net)}`, color: colors.success };
   }
   if (net < 0) {
-    return { text: `Draining at ${formatRate(-net)}`, color: "#fbbf24" };
+    return { text: `Draining at ${formatRate(-net)}`, color: colors.warning };
   }
   return null;
 }
