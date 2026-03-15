@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from "react";
+import { Row, Col } from "antd";
 import type { ThroughputState } from "../types";
 import { formatRate } from "../utils";
 
@@ -6,15 +7,20 @@ interface Props {
   throughput: ThroughputState;
 }
 
-export default function ThroughputChart({ throughput }: Props) {
+function Sparkline({
+  samples,
+  field,
+  color,
+}: {
+  samples: ThroughputState["samples_1m"];
+  field: "down_bps" | "up_bps";
+  color: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    const samples = throughput.samples_1m;
-    if (!samples || samples.length < 2) return;
 
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -28,129 +34,156 @@ export default function ThroughputChart({ throughput }: Props) {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
 
-    // Find max for scale
+    if (!samples || samples.length < 2) return;
+
     let maxBps = 1000;
     for (const s of samples) {
-      if (s.down_bps > maxBps) maxBps = s.down_bps;
-      if (s.up_bps > maxBps) maxBps = s.up_bps;
+      if (s[field] > maxBps) maxBps = s[field];
     }
-    maxBps *= 1.1;
+    maxBps *= 1.15;
 
     const n = samples.length;
 
-    // Download area + line
+    // Area fill
     ctx.beginPath();
     for (let j = 0; j < n; j++) {
       const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].down_bps / maxBps) * h;
+      const y = h - (samples[j][field] / maxBps) * h;
       if (j === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     ctx.lineTo(w, h);
     ctx.lineTo(0, h);
     ctx.closePath();
-    ctx.fillStyle = "rgba(96, 165, 250, 0.15)";
+
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, color + "20");
+    grad.addColorStop(1, color + "05");
+    ctx.fillStyle = grad;
     ctx.fill();
 
+    // Line
     ctx.beginPath();
     for (let j = 0; j < n; j++) {
       const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].down_bps / maxBps) * h;
+      const y = h - (samples[j][field] / maxBps) * h;
       if (j === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = "#60a5fa";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Upload area + line
-    ctx.beginPath();
-    for (let j = 0; j < n; j++) {
-      const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].up_bps / maxBps) * h;
-      if (j === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fillStyle = "rgba(74, 222, 128, 0.10)";
-    ctx.fill();
-
-    ctx.beginPath();
-    for (let j = 0; j < n; j++) {
-      const x = (j / (n - 1)) * w;
-      const y = h - (samples[j].up_bps / maxBps) * h;
-      if (j === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = "#4ade80";
+    ctx.strokeStyle = color + "60";
     ctx.lineWidth = 1.5;
     ctx.stroke();
-  }, [throughput]);
+  }, [samples, field, color]);
 
   useEffect(() => {
     draw();
-
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const observer = new ResizeObserver(() => draw());
     observer.observe(canvas);
     return () => observer.disconnect();
   }, [draw]);
 
   return (
-    <div
+    <canvas
+      ref={canvasRef}
       style={{
-        background: "#111",
-        border: "1px solid #222",
-        borderRadius: 8,
-        padding: 16,
-        marginTop: 12,
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
       }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <span
+    />
+  );
+}
+
+export default function ThroughputChart({ throughput }: Props) {
+  return (
+    <Row gutter={[10, 10]} style={{ marginTop: 10 }}>
+      <Col xs={12}>
+        <div
           style={{
-            color: "#666",
-            fontSize: 12,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
+            background: "#111",
+            border: "1px solid #222",
+            borderRadius: 8,
+            padding: 14,
+            position: "relative",
+            overflow: "hidden",
+            minHeight: 72,
           }}
         >
-          Throughput (60s)
-        </span>
-        <div style={{ display: "flex", gap: 16, fontSize: 13 }}>
-          <span style={{ color: "#60a5fa" }}>
-            {formatRate(throughput.current_down_bps)} down
-          </span>
-          <span style={{ color: "#4ade80" }}>
-            {formatRate(throughput.current_up_bps)} up
-          </span>
+          <Sparkline
+            samples={throughput.samples_1m}
+            field="down_bps"
+            color="#60a5fa"
+          />
+          <div style={{ position: "relative", zIndex: 1 }}>
+            <div
+              style={{
+                color: "#666",
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                marginBottom: 2,
+              }}
+            >
+              Download
+            </div>
+            <div
+              style={{
+                color: "#60a5fa",
+                fontSize: 22,
+                fontWeight: 600,
+                lineHeight: 1.2,
+              }}
+            >
+              {formatRate(throughput.current_down_bps)}
+            </div>
+          </div>
         </div>
-      </div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#666" }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#60a5fa", display: "inline-block" }} />
-          Down
+      </Col>
+      <Col xs={12}>
+        <div
+          style={{
+            background: "#111",
+            border: "1px solid #222",
+            borderRadius: 8,
+            padding: 14,
+            position: "relative",
+            overflow: "hidden",
+            minHeight: 72,
+          }}
+        >
+          <Sparkline
+            samples={throughput.samples_1m}
+            field="up_bps"
+            color="#4ade80"
+          />
+          <div style={{ position: "relative", zIndex: 1 }}>
+            <div
+              style={{
+                color: "#666",
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                marginBottom: 2,
+              }}
+            >
+              Upload
+            </div>
+            <div
+              style={{
+                color: "#4ade80",
+                fontSize: 22,
+                fontWeight: 600,
+                lineHeight: 1.2,
+              }}
+            >
+              {formatRate(throughput.current_up_bps)}
+            </div>
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#666" }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#4ade80", display: "inline-block" }} />
-          Up
-        </div>
-      </div>
-      <canvas
-        ref={canvasRef}
-        style={{ width: "100%", height: 100, display: "block" }}
-      />
-    </div>
+      </Col>
+    </Row>
   );
 }
