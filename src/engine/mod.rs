@@ -735,6 +735,8 @@ impl Engine {
                 bucket_refill_bps,
                 shaped_down_kbit: None,
                 shaped_up_kbit: None,
+                bucket_shape_at: dev.bucket.thresholds().0,
+                bucket_unshape_at: dev.bucket.thresholds().1,
             };
             if dev.turbo.active {
                 ds.mode = "turbo".to_string();

@@ -119,10 +119,10 @@ export default function App() {
         {state && (
           <>
             <Row gutter={[10, 10]}>
-              <Col xs={24} md={16}>
+              <Col xs={24} sm={16}>
                 <QuotaBar quota={state.quota} onMessage={showMessage} />
               </Col>
-              <Col xs={24} md={8}>
+              <Col xs={24} sm={8}>
                 <ThroughputChart throughput={state.throughput} />
               </Col>
             </Row>

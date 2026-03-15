@@ -10,6 +10,10 @@ interface Props {
   onMessage: (text: string, type: "success" | "error" | "info") => void;
 }
 
+function modeLabel(mode: string): string {
+  return mode === "sustained" ? "throttled" : mode;
+}
+
 function modeColor(mode: string): string {
   switch (mode) {
     case "burst":
@@ -49,6 +53,53 @@ function bucketStatus(device: DeviceSnapshot): { text: string; color: string } |
   return null;
 }
 
+/** Compute threshold percentage within the bucket, capped to 0-100. */
+function thresholdPct(threshold: number, capacity: number): number {
+  if (capacity <= 0) return 0;
+  return Math.max(0, Math.min(100, (threshold / capacity) * 100));
+}
+
+function BucketBar({ device }: { device: DeviceSnapshot }) {
+  const shapePct = thresholdPct(device.bucket_shape_at, device.bucket_capacity);
+  const unshapePct = thresholdPct(device.bucket_unshape_at, device.bucket_capacity);
+
+  // In burst mode, show the shape_at mark (where it will drop to throttled)
+  // In sustained/throttled mode, show the unshape_at mark (where it will return to burst)
+  const showMark = device.mode !== "turbo";
+  const markPct = device.mode === "burst" ? shapePct : unshapePct;
+  const markColor = device.mode === "burst" ? "#fbbf24" : "#60a5fa";
+
+  return (
+    <div style={{ position: "relative" }}>
+      <Progress
+        percent={device.bucket_pct}
+        showInfo={false}
+        strokeColor={bucketColor(device.bucket_pct)}
+        trailColor="#222"
+        size={["100%", 6]}
+      />
+      {showMark && markPct > 0 && markPct < 100 && (
+        <div
+          style={{
+            position: "absolute",
+            left: `${markPct}%`,
+            top: 0,
+            width: 2,
+            height: 6,
+            background: markColor,
+            borderRadius: 1,
+          }}
+          title={
+            device.mode === "burst"
+              ? `Throttle at ${Math.round(shapePct)}%`
+              : `Burst at ${Math.round(unshapePct)}%`
+          }
+        />
+      )}
+    </div>
+  );
+}
+
 function TurboButton({
   device,
   onMessage,
@@ -59,7 +110,6 @@ function TurboButton({
   const [pending, setPending] = useState<boolean | null>(null);
   const pendingRef = useRef<boolean | null>(null);
 
-  // Clear pending when WebSocket state catches up
   useEffect(() => {
     if (pendingRef.current !== null && device.turbo === pendingRef.current) {
       setPending(null);
@@ -172,7 +222,7 @@ function DeviceCard({
             display: "inline-block",
           }}
         >
-          {device.mode}
+          {modeLabel(device.mode)}
         </span>
       </div>
 
@@ -189,13 +239,7 @@ function DeviceCard({
           <span>Bucket</span>
           <span>{device.bucket_pct}% · {bucketMB}/{capacityMB}</span>
         </div>
-        <Progress
-          percent={device.bucket_pct}
-          showInfo={false}
-          strokeColor={bucketColor(device.bucket_pct)}
-          trailColor="#222"
-          size={["100%", 6]}
-        />
+        <BucketBar device={device} />
         {status && (
           <div style={{ color: status.color, fontSize: 11, marginTop: 2 }}>
             {status.text}
