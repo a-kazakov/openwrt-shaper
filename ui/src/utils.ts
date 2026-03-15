@@ -41,6 +41,7 @@ export function formatRateRound(bps: number | null | undefined): string {
   if (bps == null) return "--";
   const abs = Math.abs(bps);
   if (abs < 1000000) return Math.round(bps / 1000) + " Kb/s";
+  if (abs < 10000000) return (bps / 1000000).toFixed(1) + " Mb/s";
   if (abs < 1000000000) return Math.round(bps / 1000000) + " Mb/s";
   return Math.round(bps / 1000000000) + " Gb/s";
 }
