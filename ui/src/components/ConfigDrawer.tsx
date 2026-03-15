@@ -199,12 +199,10 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
     try {
       const values = form.getFieldsValue();
       const payload: Partial<ConfigValues> = { ...values };
-      if (values.max_rate_mbit != null) {
-        payload.max_rate_kbit = Math.round(values.max_rate_mbit * 1000);
-      }
-      if (values.min_rate_mbit != null) {
-        payload.min_rate_kbit = Math.round(values.min_rate_mbit * 1000);
-      }
+      // Slider values are managed via state, not form fields
+      payload.max_rate_kbit = Math.round(maxMbit * 1000);
+      payload.min_rate_kbit = Math.round(minMbit * 1000);
+      payload.curve_shape = curveShape;
       delete (payload as Record<string, unknown>).max_rate_mbit;
       delete (payload as Record<string, unknown>).min_rate_mbit;
       const cfg = await updateConfig(payload);
