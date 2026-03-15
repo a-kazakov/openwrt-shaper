@@ -143,6 +143,11 @@ impl DeviceBucket {
         (self.shape_at, self.unshape_at)
     }
 
+    /// Bytes of space remaining before capacity is reached.
+    pub fn space_remaining(&self) -> i64 {
+        (self.capacity - self.tokens).max(0)
+    }
+
     /// True if bucket is at capacity.
     pub fn is_full(&self) -> bool {
         self.tokens >= self.capacity
