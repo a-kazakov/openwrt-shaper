@@ -92,7 +92,7 @@ func defaultValues() Values {
 		IFBIface:              "ifb0",
 		DishAddr:              "192.168.100.1:9200",
 		DishPollIntervalSec:   30,
-		ListenAddr:            "0.0.0.0:8275",
+		ListenAddr:            ":8275",
 		BillingResetDay:       1,
 		MonthlyQuotaGB:        20,
 		CurveShape:            0.40,
