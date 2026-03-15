@@ -10,7 +10,7 @@ pub mod web;
 use clap::Parser;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -99,8 +99,18 @@ async fn main() {
     let store = match store::Store::open(db_path) {
         Ok(s) => Arc::new(s),
         Err(e) => {
-            error!("failed to open database: {e}");
-            std::process::exit(1);
+            warn!("database corrupt or incompatible, recreating: {e}");
+            if let Err(rm_err) = std::fs::remove_file(db_path) {
+                error!("failed to remove corrupt database: {rm_err}");
+                std::process::exit(1);
+            }
+            match store::Store::open(db_path) {
+                Ok(s) => Arc::new(s),
+                Err(e2) => {
+                    error!("failed to create new database: {e2}");
+                    std::process::exit(1);
+                }
+            }
         }
     };
 
