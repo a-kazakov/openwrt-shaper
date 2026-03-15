@@ -12,6 +12,8 @@ pub struct DeviceBucket {
     capacity: i64,
     mode: DeviceMode,
     burst_ceil_kbit: i32,
+    shape_at: i64,
+    unshape_at: i64,
 }
 
 impl DeviceBucket {
@@ -24,6 +26,8 @@ impl DeviceBucket {
             capacity: cap,
             mode: DeviceMode::Sustained,
             burst_ceil_kbit: 0,
+            shape_at: 0,
+            unshape_at: 0,
         }
     }
 
@@ -49,8 +53,10 @@ impl DeviceBucket {
             self.burst_ceil_kbit = 1000;
         }
 
-        let shape_at = (self.capacity / 4).min(20 * 1_048_576 * tick_sec as i64);
-        let unshape_at = shape_at * 3;
+        self.shape_at = (self.capacity / 4).min(20 * 1_048_576 * tick_sec as i64);
+        self.unshape_at = self.shape_at * 3;
+        let shape_at = self.shape_at;
+        let unshape_at = self.unshape_at;
 
         if self.mode == DeviceMode::Turbo {
             return;
@@ -116,6 +122,11 @@ impl DeviceBucket {
     /// Current burst ceiling in kbit/s.
     pub fn burst_ceil_kbit(&self) -> i32 {
         self.burst_ceil_kbit
+    }
+
+    /// Hysteresis thresholds: (shape_at, unshape_at) in bytes.
+    pub fn thresholds(&self) -> (i64, i64) {
+        (self.shape_at, self.unshape_at)
     }
 
     /// True if bucket is at capacity.
