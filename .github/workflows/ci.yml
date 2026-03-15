@@ -39,10 +39,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build ${{ matrix.suffix }}
-        run: cross build --target ${{ matrix.target }} --release
+        run: cross +nightly build --target ${{ matrix.target }} --release
