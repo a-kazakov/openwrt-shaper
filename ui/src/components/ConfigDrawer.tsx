@@ -169,6 +169,8 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  const [resolvedWan, setResolvedWan] = useState<string | undefined>();
+  const [resolvedLan, setResolvedLan] = useState<string | undefined>();
   const [maxMbit, setMaxMbit] = useState(50);
   const [minMbit, setMinMbit] = useState(1);
   const [curveShape, setCurveShape] = useState(0.4);
@@ -190,6 +192,8 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
         setMinMbit(minM);
         setCurveShape(cfg.curve_shape);
         setQuotaGb(cfg.monthly_quota_gb);
+        setResolvedWan(cfg.resolved_wan);
+        setResolvedLan(cfg.resolved_lan);
       })
       .finally(() => setLoading(false));
   }, [open, form]);
@@ -411,15 +415,17 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 label="WAN Interface"
                 name="wan_iface"
                 tooltip="Upstream-facing network interface. Set to 'auto' to detect from the default route."
+                extra={resolvedWan ? `Using: ${resolvedWan}` : undefined}
               >
-                <Input />
+                <Input placeholder="auto" />
               </Form.Item>
               <Form.Item
                 label="LAN Interface"
                 name="lan_iface"
                 tooltip="LAN bridge interface where download shaping is applied. Set to 'auto' to detect."
+                extra={resolvedLan ? `Using: ${resolvedLan}` : undefined}
               >
-                <Input />
+                <Input placeholder="auto" />
               </Form.Item>
               <Form.Item
                 label="Dish Address"

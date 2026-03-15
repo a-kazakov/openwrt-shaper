@@ -151,6 +151,8 @@ pub struct Config {
 struct ConfigInner {
     values: Values,
     file_path: Option<PathBuf>,
+    resolved_wan: Option<String>,
+    resolved_lan: Option<String>,
 }
 
 impl Config {
@@ -160,6 +162,8 @@ impl Config {
             inner: Arc::new(RwLock::new(ConfigInner {
                 values: Values::default(),
                 file_path: None,
+                resolved_wan: None,
+                resolved_lan: None,
             })),
         }
     }
@@ -239,9 +243,22 @@ impl Config {
         Ok(())
     }
 
-    /// Return a read-only copy of config values.
+    /// Return a read-only copy of config values with effective interfaces.
+    /// WAN/LAN fields contain the resolved interface names, not "auto".
     pub fn snapshot(&self) -> Values {
-        self.inner.read().unwrap().values.clone()
+        let inner = self.inner.read().unwrap();
+        let mut vals = inner.values.clone();
+        if vals.wan_iface == "auto" {
+            if let Some(ref resolved) = inner.resolved_wan {
+                vals.wan_iface = resolved.clone();
+            }
+        }
+        if vals.lan_iface == "auto" {
+            if let Some(ref resolved) = inner.resolved_lan {
+                vals.lan_iface = resolved.clone();
+            }
+        }
+        vals
     }
 
     /// Return total monthly quota in bytes.
@@ -254,21 +271,54 @@ impl Config {
         self.inner.write().unwrap().file_path = Some(PathBuf::from(path));
     }
 
-    /// Replace "auto" WAN/LAN values with the given detected values.
+    /// Store detected WAN/LAN interfaces. Does not modify the config values
+    /// (which may be "auto"). Use `effective_wan`/`effective_lan` to get the
+    /// actual interface in use.
     pub fn resolve_ifaces(&self, wan: &str, lan: &str) {
         let mut inner = self.inner.write().unwrap();
-        if inner.values.wan_iface == "auto" && !wan.is_empty() {
-            inner.values.wan_iface = wan.to_string();
+        if !wan.is_empty() {
+            inner.resolved_wan = Some(wan.to_string());
         }
-        if inner.values.lan_iface == "auto" && !lan.is_empty() {
-            inner.values.lan_iface = lan.to_string();
+        if !lan.is_empty() {
+            inner.resolved_lan = Some(lan.to_string());
+        }
+    }
+
+    /// Return the effective WAN interface (resolved or configured).
+    pub fn effective_wan(&self) -> String {
+        let inner = self.inner.read().unwrap();
+        if inner.values.wan_iface == "auto" {
+            inner.resolved_wan.clone().unwrap_or_else(|| "auto".to_string())
+        } else {
+            inner.values.wan_iface.clone()
+        }
+    }
+
+    /// Return the effective LAN interface (resolved or configured).
+    pub fn effective_lan(&self) -> String {
+        let inner = self.inner.read().unwrap();
+        if inner.values.lan_iface == "auto" {
+            inner.resolved_lan.clone().unwrap_or_else(|| "auto".to_string())
+        } else {
+            inner.values.lan_iface.clone()
         }
     }
 
     /// Return the config values as a JSON Value (for API responses).
+    /// Includes `resolved_wan` and `resolved_lan` fields showing
+    /// the actual interfaces in use.
     pub fn to_json(&self) -> serde_json::Value {
         let inner = self.inner.read().unwrap();
-        serde_json::to_value(&inner.values).unwrap()
+        let mut json = serde_json::to_value(&inner.values).unwrap();
+        if let Some(obj) = json.as_object_mut() {
+            if let Some(ref wan) = inner.resolved_wan {
+                obj.insert("resolved_wan".to_string(), serde_json::Value::String(wan.clone()));
+            }
+            if let Some(ref lan) = inner.resolved_lan {
+                obj.insert("resolved_lan".to_string(), serde_json::Value::String(lan.clone()));
+            }
+        }
+        json
     }
 }
 
@@ -373,17 +423,36 @@ mod tests {
     #[test]
     fn test_resolve_ifaces() {
         let cfg = Config::default_config();
+        // Before resolving, snapshot returns "auto" (no resolved value yet)
         assert_eq!(cfg.snapshot().wan_iface, "auto");
         assert_eq!(cfg.snapshot().lan_iface, "auto");
 
         cfg.resolve_ifaces("eth0", "br-lan");
+        // Snapshot returns resolved values
         assert_eq!(cfg.snapshot().wan_iface, "eth0");
         assert_eq!(cfg.snapshot().lan_iface, "br-lan");
+        // Effective accessors also return resolved values
+        assert_eq!(cfg.effective_wan(), "eth0");
+        assert_eq!(cfg.effective_lan(), "br-lan");
 
-        // Should not overwrite non-auto values
+        // Stored config still has "auto"
+        let json = cfg.to_json();
+        assert_eq!(json.get("wan_iface").unwrap(), "auto");
+        assert_eq!(json.get("lan_iface").unwrap(), "auto");
+        // Resolved values included in API response
+        assert_eq!(json.get("resolved_wan").unwrap(), "eth0");
+        assert_eq!(json.get("resolved_lan").unwrap(), "br-lan");
+
+        // Updating resolved values works
         cfg.resolve_ifaces("eth1", "br-guest");
-        assert_eq!(cfg.snapshot().wan_iface, "eth0");
-        assert_eq!(cfg.snapshot().lan_iface, "br-lan");
+        assert_eq!(cfg.snapshot().wan_iface, "eth1");
+        assert_eq!(cfg.snapshot().lan_iface, "br-guest");
+
+        // Non-auto config values are not affected by resolve
+        cfg.update(r#"{"wan_iface": "eth2"}"#.as_bytes()).unwrap();
+        cfg.resolve_ifaces("eth99", "");
+        assert_eq!(cfg.snapshot().wan_iface, "eth2"); // uses config, not resolved
+        assert_eq!(cfg.effective_wan(), "eth2");
     }
 
     #[test]
