@@ -584,7 +584,9 @@ impl Engine {
                     session_up: 0,
                     session_down: 0,
                     cycle_bytes: 0,
-                    last_mode: crate::model::DeviceMode::Sustained,
+                    // Set to Burst so the first tick detects a mode change
+                    // and applies ratio-split rates via set_device_mode
+                    last_mode: crate::model::DeviceMode::Burst,
                     last_burst_ceil: 0,
                 };
 
