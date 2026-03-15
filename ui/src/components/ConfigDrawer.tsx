@@ -364,7 +364,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
               <span style={{ color: "#fff" }}>{burnLabel}</span>
             </div>
             <div style={derivStyle}>
-              <Tooltip title="Hourly data consumption after the quota is exhausted. Can be used to estimate overage charges.">
+              <Tooltip title="Maximum possible hourly consumption after quota is exhausted (without turbo). Actual usage depends on device activity. Can be used to estimate worst-case overage charges.">
                 <span style={{ borderBottom: "1px dashed #555", cursor: "help" }}>Max consumption at min rate</span>
               </Tooltip>
               <span style={{ color: "#fff" }}>{gbPerHrAtMin.toFixed(2)} GB/hr</span>
