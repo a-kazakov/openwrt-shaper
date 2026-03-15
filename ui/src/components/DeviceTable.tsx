@@ -10,7 +10,10 @@ function formatLimitPair(downBps: number, upBps: number): string {
   const maxVal = Math.max(downBps, upBps);
   let unit: string;
   let div: number;
-  if (maxVal >= 1000000) {
+  if (maxVal >= 1000000000) {
+    unit = "Gb/s";
+    div = 1000000000;
+  } else if (maxVal >= 1000000) {
     unit = "Mb/s";
     div = 1000000;
   } else {
