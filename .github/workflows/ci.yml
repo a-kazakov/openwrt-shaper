@@ -12,6 +12,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI
+        run: cd ui && npm ci && npm run build
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Clippy
@@ -35,6 +44,15 @@ jobs:
             suffix: armv7
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI
+        run: cd ui && npm ci && npm run build
 
       - uses: dtolnay/rust-toolchain@stable
 
