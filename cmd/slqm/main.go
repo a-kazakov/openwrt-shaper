@@ -125,13 +125,9 @@ func main() {
 
 	// Explicitly bind to IPv4 — OpenWrt's iptables (fw3) blocks IPv4 traffic
 	// to ports on Go's default dual-stack IPv6 socket (:::port).
-	listenAddr := snap.ListenAddr
-	if listenAddr == "" || listenAddr == ":8275" {
-		listenAddr = "0.0.0.0:8275"
-	}
-	ln, err := net.Listen("tcp4", listenAddr)
+	ln, err := net.Listen("tcp4", snap.ListenAddr)
 	if err != nil {
-		log.Fatalf("listen %s: %v", listenAddr, err)
+		log.Fatalf("listen %s: %v", snap.ListenAddr, err)
 	}
 
 	// Start all goroutines
