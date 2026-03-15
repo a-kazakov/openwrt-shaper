@@ -158,7 +158,7 @@ const drawerCSS = `
     width: 20px !important;
     height: 20px !important;
     inset-inline-start: -4px !important;
-    inset-block-start: -6px !important;
+    inset-block-start: -5px !important;
     box-shadow: 0 0 0 2px rgba(255,255,255,0.3) !important;
   }
 `;
