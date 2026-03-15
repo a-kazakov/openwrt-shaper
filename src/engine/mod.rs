@@ -264,13 +264,8 @@ impl Engine {
         let curve_rate_kbit = inner.curve.rate(remaining);
         let curve_rate_bps = curve_rate_kbit as i64 * 1000 / 8;
 
-        // Raise parent ceil when any device needs to exceed the curve rate
-        let needs_uncapped = inner.devices.values().any(|d| {
-            d.turbo.active || d.bucket.mode() == crate::model::DeviceMode::Burst
-        });
-
-        // Update root class rate on both HTB trees
-        let _ = inner.tc.update_root_rate(curve_rate_kbit, needs_uncapped);
+        // Parent classes are always uncapped; per-device classes handle shaping
+        let _ = inner.tc.update_root_rate(curve_rate_kbit, false);
 
         // Read all nftables counters
         let counters_result = counters::read_all_counters(inner.nft.table_name());
