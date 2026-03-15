@@ -158,7 +158,7 @@ const drawerCSS = `
     width: 20px !important;
     height: 20px !important;
     inset-inline-start: -4px !important;
-    inset-block-start: -4px !important;
+    inset-block-start: -6px !important;
     box-shadow: 0 0 0 2px rgba(255,255,255,0.3) !important;
   }
 `;
@@ -355,7 +355,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
               <span style={{ color: "#fff" }}>{burnLabel}</span>
             </div>
             <div style={derivStyle}>
-              <span>Speed at min rate</span>
+              <span>Max consumption at min rate</span>
               <span style={{ color: "#fff" }}>{gbPerHrAtMin.toFixed(2)} GB/hr</span>
             </div>
           </div>
