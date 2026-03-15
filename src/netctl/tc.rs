@@ -177,28 +177,16 @@ impl TCController {
                 self.set_class(&self.lan_iface, slot, "1:3", fair_share_kbit, UNCAPPED);
             }
             "burst" => {
-                let mut down_ceil = (burst_ceil_kbit as f64 * down_up_ratio) as i32;
-                let mut up_ceil = burst_ceil_kbit - down_ceil;
-                if down_ceil < self.min_rate {
-                    down_ceil = self.min_rate;
-                }
-                if up_ceil < self.min_rate {
-                    up_ceil = self.min_rate;
-                }
-                self.set_class(&self.wan_iface, slot, "1:1", fair_share_kbit, up_ceil);
-                self.set_class(&self.lan_iface, slot, "1:3", fair_share_kbit, down_ceil);
+                let down_ceil = (burst_ceil_kbit as f64 * down_up_ratio) as i32;
+                let up_ceil = burst_ceil_kbit - down_ceil;
+                self.set_class(&self.wan_iface, slot, "1:1", fair_share_kbit, up_ceil.max(1));
+                self.set_class(&self.lan_iface, slot, "1:3", fair_share_kbit, down_ceil.max(1));
             }
             "sustained" => {
-                let mut down_ceil = (fair_share_kbit as f64 * down_up_ratio) as i32;
-                let mut up_ceil = fair_share_kbit - down_ceil;
-                if down_ceil < self.min_rate {
-                    down_ceil = self.min_rate;
-                }
-                if up_ceil < self.min_rate {
-                    up_ceil = self.min_rate;
-                }
-                self.set_class(&self.wan_iface, slot, "1:1", up_ceil, up_ceil);
-                self.set_class(&self.lan_iface, slot, "1:3", down_ceil, down_ceil);
+                let down_ceil = (fair_share_kbit as f64 * down_up_ratio) as i32;
+                let up_ceil = fair_share_kbit - down_ceil;
+                self.set_class(&self.wan_iface, slot, "1:1", up_ceil.max(1), up_ceil.max(1));
+                self.set_class(&self.lan_iface, slot, "1:3", down_ceil.max(1), down_ceil.max(1));
             }
             _ => {
                 info!("unknown mode: {mode}");
