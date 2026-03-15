@@ -154,23 +154,11 @@ const derivStyle: React.CSSProperties = {
 // CSS to enlarge slider handle and disable text selection
 const drawerCSS = `
   .config-drawer { user-select: none; -webkit-user-select: none; }
-  .config-drawer .ant-slider {
-    padding-block: 12px !important;
-  }
-  .config-drawer .ant-slider-rail,
-  .config-drawer .ant-slider-track {
-    height: 8px !important;
-  }
-  .config-drawer .ant-slider-handle {
-    width: 20px !important;
-    height: 20px !important;
-    margin-top: -6px !important;
-  }
   .config-drawer .ant-slider-handle::after {
     width: 20px !important;
     height: 20px !important;
-    inset-inline-start: 0 !important;
-    inset-block-start: 0 !important;
+    inset-inline-start: -4px !important;
+    inset-block-start: -4px !important;
     box-shadow: 0 0 0 2px rgba(255,255,255,0.3) !important;
   }
 `;
@@ -205,16 +193,6 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
       })
       .finally(() => setLoading(false));
   }, [open, form]);
-
-  // Lock page scroll when drawer is open
-  useEffect(() => {
-    if (open) {
-      document.documentElement.style.overflow = "hidden";
-    } else {
-      document.documentElement.style.overflow = "";
-    }
-    return () => { document.documentElement.style.overflow = ""; };
-  }, [open]);
 
   const handleSave = async () => {
     setSaving(true);
