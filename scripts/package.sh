@@ -40,7 +40,7 @@ for suffix in arm64 armv7 mipsle; do
   "ifb_iface": "ifb0",
   "dish_addr": "192.168.100.1:9200",
   "dish_poll_interval_sec": 30,
-  "listen_addr": ":8275",
+  "listen_addr": "0.0.0.0:8275",
   "billing_reset_day": 1,
   "monthly_quota_gb": 20,
   "curve_shape": 0.40,
@@ -95,6 +95,18 @@ CTLEOF
     cat > "$work/control/postinst" << 'POSTEOF'
 #!/bin/sh
 mkdir -p /var/lib/slqm
+
+# Allow access to SLQM web UI (port 8275) from all interfaces
+cat > /etc/firewall.slqm << 'FWEOF'
+iptables -I INPUT -p tcp --dport 8275 -j ACCEPT
+ip6tables -I INPUT -p tcp --dport 8275 -j ACCEPT 2>/dev/null
+FWEOF
+uci -q delete firewall.slqm_include
+uci set firewall.slqm_include=include
+uci set firewall.slqm_include.path='/etc/firewall.slqm'
+uci commit firewall
+/etc/init.d/firewall reload 2>/dev/null
+
 /etc/init.d/slqm enable
 /etc/init.d/slqm start
 exit 0
@@ -122,6 +134,12 @@ tc qdisc del dev ifb0 root 2>/dev/null
 ip link del ifb0 2>/dev/null
 # Clean up nftables
 nft delete table inet slqm 2>/dev/null
+# Remove firewall rule
+rm -f /etc/firewall.slqm
+uci -q delete firewall.slqm_include
+uci -q delete firewall.slqm_web
+uci commit firewall 2>/dev/null
+/etc/init.d/firewall reload 2>/dev/null
 exit 0
 PRERMEOF
     chmod 755 "$work/control/prerm"

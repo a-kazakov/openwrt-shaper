@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -122,10 +123,21 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
+	// Explicitly bind to IPv4 — OpenWrt's iptables (fw3) blocks IPv4 traffic
+	// to ports on Go's default dual-stack IPv6 socket (:::port).
+	listenAddr := snap.ListenAddr
+	if listenAddr == "" || listenAddr == ":8275" {
+		listenAddr = "0.0.0.0:8275"
+	}
+	ln, err := net.Listen("tcp4", listenAddr)
+	if err != nil {
+		log.Fatalf("listen %s: %v", listenAddr, err)
+	}
+
 	// Start all goroutines
 	go func() {
-		log.Printf("HTTP server listening on %s", snap.ListenAddr)
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		log.Printf("HTTP server listening on %s", ln.Addr())
+		if err := server.Serve(ln); err != http.ErrServerClosed {
 			log.Fatalf("http server: %v", err)
 		}
 	}()

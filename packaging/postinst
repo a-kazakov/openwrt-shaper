@@ -1,5 +1,17 @@
 #!/bin/sh
 mkdir -p /var/lib/slqm
+
+# Allow access to SLQM web UI (port 8275) from all interfaces
+cat > /etc/firewall.slqm << 'FWEOF'
+iptables -I INPUT -p tcp --dport 8275 -j ACCEPT
+ip6tables -I INPUT -p tcp --dport 8275 -j ACCEPT 2>/dev/null
+FWEOF
+uci -q delete firewall.slqm_include
+uci set firewall.slqm_include=include
+uci set firewall.slqm_include.path='/etc/firewall.slqm'
+uci commit firewall
+/etc/init.d/firewall reload 2>/dev/null
+
 /etc/init.d/slqm enable
 /etc/init.d/slqm start
 exit 0
