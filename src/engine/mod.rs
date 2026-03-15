@@ -18,7 +18,7 @@ use bucket::DeviceBucket;
 use curve::CurveParams;
 
 use chrono::Utc;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::{error, info, warn};
@@ -70,7 +70,7 @@ struct EngineInner {
     slot_alloc: i32,
 
     // Throughput tracking
-    throughput_samples: Vec<ThroughputSample>,
+    throughput_samples: VecDeque<ThroughputSample>,
     last_tick_down: i64,
     last_tick_up: i64,
     // 30-second accumulator for coarse samples
@@ -153,7 +153,7 @@ impl Engine {
                 billing_month: current_month,
                 devices: HashMap::new(),
                 slot_alloc: 0,
-                throughput_samples: Vec::new(),
+                throughput_samples: VecDeque::new(),
                 last_tick_down: 0,
                 last_tick_up: 0,
                 sample_accum_down: 0,
@@ -454,12 +454,12 @@ impl Engine {
                 down_bps: inner.sample_accum_down * 8 / window_sec,
                 up_bps: inner.sample_accum_up * 8 / window_sec,
             };
-            inner.throughput_samples.push(sample);
+            inner.throughput_samples.push_back(sample);
             inner.sample_accum_down = 0;
             inner.sample_accum_up = 0;
             inner.sample_accum_ticks = 0;
             if inner.throughput_samples.len() > THROUGHPUT_HISTORY_SAMPLES {
-                inner.throughput_samples.remove(0);
+                inner.throughput_samples.pop_front();
             }
         }
 
@@ -823,7 +823,7 @@ impl Engine {
             throughput: ThroughputState {
                 current_down_bps: inner.last_tick_down * 8 / snap.tick_interval_sec as i64,
                 current_up_bps: inner.last_tick_up * 8 / snap.tick_interval_sec as i64,
-                samples_1h: inner.throughput_samples.clone(),
+                samples_1h: inner.throughput_samples.iter().cloned().collect(),
             },
             dish: inner.dish_status.clone(),
         }
