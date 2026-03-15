@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -122,19 +123,38 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
-	// Open the listen port in iptables (fw3 blocks non-standard ports).
-	// Uses dual-stack listener (IPv6 + IPv4-mapped) since IPv6 works
-	// reliably on OpenWrt while IPv4 may be blocked by fw3.
+	// Listen on both IPv4 and IPv6 separately (like nginx does).
+	// Go's dual-stack socket (:::port) doesn't receive IPv4 connections
+	// on GL.iNet's MediaTek kernel despite bindv6only=0.
 	listenPort := netctl.ExtractPort(snap.ListenAddr)
 	netctl.OpenFirewallPort(listenPort)
 
+	ln4, err := net.Listen("tcp4", "0.0.0.0:"+listenPort)
+	if err != nil {
+		log.Printf("warning: IPv4 listen failed: %v", err)
+	}
+	ln6, err := net.Listen("tcp6", "[::]:"+listenPort)
+	if err != nil {
+		log.Printf("warning: IPv6 listen failed: %v", err)
+	}
+
 	// Start all goroutines
-	go func() {
-		log.Printf("HTTP server listening on %s", snap.ListenAddr)
-		if err := server.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatalf("http server: %v", err)
-		}
-	}()
+	if ln4 != nil {
+		go func() {
+			log.Printf("HTTP server listening on %s (IPv4)", ln4.Addr())
+			if err := server.Serve(ln4); err != http.ErrServerClosed {
+				log.Printf("http server (IPv4): %v", err)
+			}
+		}()
+	}
+	if ln6 != nil {
+		go func() {
+			log.Printf("HTTP server listening on %s (IPv6)", ln6.Addr())
+			if err := server.Serve(ln6); err != http.ErrServerClosed {
+				log.Printf("http server (IPv6): %v", err)
+			}
+		}()
+	}
 
 	stopWS := make(chan struct{})
 	go hub.Run(stopWS)
