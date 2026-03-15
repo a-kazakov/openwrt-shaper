@@ -40,7 +40,7 @@ for suffix in arm64 armv7 mipsle; do
   "ifb_iface": "ifb0",
   "dish_addr": "192.168.100.1:9200",
   "dish_poll_interval_sec": 30,
-  "listen_addr": ":8275",
+  "listen_addr": "0.0.0.0:8275",
   "billing_reset_day": 1,
   "monthly_quota_gb": 20,
   "curve_shape": 0.40,
@@ -122,6 +122,13 @@ tc qdisc del dev ifb0 root 2>/dev/null
 ip link del ifb0 2>/dev/null
 # Clean up nftables
 nft delete table inet slqm 2>/dev/null
+# Clean up firewall (fallback + legacy includes)
+PORT=$(grep listen_addr /etc/slqm/config.json 2>/dev/null | grep -o '[0-9]*"' | tr -d '"')
+[ -n "$PORT" ] && iptables -D INPUT -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null
+rm -f /etc/firewall.slqm
+uci -q delete firewall.slqm_include 2>/dev/null
+uci -q delete firewall.slqm_web 2>/dev/null
+uci commit firewall 2>/dev/null
 exit 0
 PRERMEOF
     chmod 755 "$work/control/prerm"

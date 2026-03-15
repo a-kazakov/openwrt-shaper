@@ -17,4 +17,11 @@ tc qdisc del dev ifb0 root 2>/dev/null
 ip link del ifb0 2>/dev/null
 # Clean up nftables
 nft delete table inet slqm 2>/dev/null
+# Clean up firewall (fallback + legacy includes)
+PORT=$(grep listen_addr /etc/slqm/config.json 2>/dev/null | grep -o '[0-9]*"' | tr -d '"')
+[ -n "$PORT" ] && iptables -D INPUT -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null
+rm -f /etc/firewall.slqm
+uci -q delete firewall.slqm_include 2>/dev/null
+uci -q delete firewall.slqm_web 2>/dev/null
+uci commit firewall 2>/dev/null
 exit 0
