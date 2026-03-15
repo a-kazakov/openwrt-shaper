@@ -155,7 +155,7 @@ function TurboButton({
         onClick={handleToggle}
         disabled={isLoading}
         icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
-        style={{ minHeight: 36, minWidth: 44 }}
+        style={{ height: 24, minWidth: 0, padding: "0 8px", fontSize: 11 }}
       >
         Stop{remaining}
       </Button>
@@ -168,7 +168,7 @@ function TurboButton({
       onClick={handleToggle}
       disabled={isLoading}
       icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
-      style={{ minHeight: 36, minWidth: 44 }}
+      style={{ height: 24, minWidth: 0, padding: "0 8px", fontSize: 11 }}
     >
       Turbo
     </Button>
