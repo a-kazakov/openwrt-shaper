@@ -25,8 +25,8 @@ export function useWebSocket() {
       try {
         const snap: StateSnapshot = JSON.parse(ev.data);
         setState(snap);
-      } catch {
-        // ignore parse errors
+      } catch (e) {
+        console.error("WebSocket parse error:", e);
       }
     };
 

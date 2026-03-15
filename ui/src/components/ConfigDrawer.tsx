@@ -218,8 +218,8 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
       const cfg = await updateConfig(payload);
       onSaved(cfg);
       onClose();
-    } catch {
-      // error handled by parent message
+    } catch (e) {
+      console.error("Config save failed:", e);
     } finally {
       setSaving(false);
     }

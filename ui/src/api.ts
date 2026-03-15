@@ -5,9 +5,14 @@ async function request<T>(
   opts?: RequestInit,
 ): Promise<T> {
   const res = await fetch(url, opts);
-  const body = await res.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(`${res.status} ${res.statusText}`);
+  }
   if (!res.ok) {
-    throw new Error(body.error || res.statusText);
+    throw new Error((body.error as string) || res.statusText);
   }
   return body as T;
 }
