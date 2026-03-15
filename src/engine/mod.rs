@@ -299,8 +299,8 @@ impl Engine {
             // Read counters
             if let Ok(ref counter_map) = counters_result {
                 if let Some(c) = counter_map.get(&dev.mark) {
-                    let new_up = c[0];
-                    let new_down = c[1];
+                    let new_up = c.upload;
+                    let new_down = c.download;
 
                     dev.delta_up = new_up - dev.prev_counter_up;
                     // Negative delta means nft counters were reset (e.g., table recreated).

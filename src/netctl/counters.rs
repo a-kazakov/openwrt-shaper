@@ -36,12 +36,16 @@ fn read_chain_bytes(table_name: &str, chain: &str, mark: i32) -> Result<i64, Str
     Ok(0)
 }
 
-/// Read byte counters for all devices in both chains.
-/// Returns map[mark] -> (upload, download).
-pub fn read_all_counters(table_name: &str) -> Result<HashMap<i32, [i64; 2]>, String> {
-    let mut result: HashMap<i32, [i64; 2]> = HashMap::new();
+pub struct CounterPair {
+    pub upload: i64,
+    pub download: i64,
+}
 
-    for (i, chain) in ["upload", "download"].iter().enumerate() {
+/// Read byte counters for all devices in both chains.
+pub fn read_all_counters(table_name: &str) -> Result<HashMap<i32, CounterPair>, String> {
+    let mut result: HashMap<i32, CounterPair> = HashMap::new();
+
+    for chain in ["upload", "download"] {
         let output = run_cmd("nft", &["list", "chain", "inet", table_name, chain])?;
 
         for line in output.lines() {
@@ -63,8 +67,11 @@ pub fn read_all_counters(table_name: &str) -> Result<HashMap<i32, [i64; 2]>, Str
                 Err(_) => continue,
             };
 
-            let entry = result.entry(mark).or_insert([0, 0]);
-            entry[i] = bytes;
+            let entry = result.entry(mark).or_insert(CounterPair { upload: 0, download: 0 });
+            match chain {
+                "upload" => entry.upload = bytes,
+                _ => entry.download = bytes,
+            }
         }
     }
 
