@@ -200,7 +200,7 @@ function DeviceCard({
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "flex-start",
+          alignItems: "center",
           marginBottom: 10,
         }}
       >
@@ -208,22 +208,25 @@ function DeviceCard({
           <div style={{ color: "#fff", fontWeight: 500, fontSize: 15 }}>{name}</div>
           <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{device.mac}</div>
         </div>
-        <span
-          style={{
-            borderRadius: 4,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            fontSize: 10,
-            letterSpacing: "0.05em",
-            border: `1px solid ${modeColor(device.mode)}`,
-            color: modeColor(device.mode),
-            padding: "2px 8px",
-            lineHeight: "20px",
-            display: "inline-block",
-          }}
-        >
-          {modeLabel(device.mode)}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <TurboButton device={device} onMessage={onMessage} />
+          <span
+            style={{
+              borderRadius: 4,
+              fontWeight: 600,
+              textTransform: "uppercase",
+              fontSize: 10,
+              letterSpacing: "0.05em",
+              border: `1px solid ${modeColor(device.mode)}`,
+              color: modeColor(device.mode),
+              padding: "2px 8px",
+              lineHeight: "20px",
+              display: "inline-block",
+            }}
+          >
+            {modeLabel(device.mode)}
+          </span>
+        </div>
       </div>
 
       <div style={{ marginBottom: 8 }}>
@@ -236,12 +239,12 @@ function DeviceCard({
             color: "#666",
           }}
         >
-          <span>Bucket</span>
+          <span>Burst Budget</span>
           <span>{device.bucket_pct}% · {bucketMB}/{capacityMB}</span>
         </div>
         <BucketBar device={device} />
         {status && (
-          <div style={{ color: status.color, fontSize: 11, marginTop: 2 }}>
+          <div style={{ color: status.color, fontSize: 11, marginTop: 4 }}>
             {status.text}
           </div>
         )}
@@ -253,7 +256,6 @@ function DeviceCard({
           gridTemplateColumns: "1fr 1fr",
           gap: "6px 16px",
           fontSize: 12,
-          marginBottom: 10,
         }}
       >
         <div>
@@ -277,8 +279,6 @@ function DeviceCard({
           <span style={{ color: "#999" }}>{formatBytes(device.cycle_bytes)}</span>
         </div>
       </div>
-
-      <TurboButton device={device} onMessage={onMessage} />
     </Card>
   );
 }
