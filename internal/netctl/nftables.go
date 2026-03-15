@@ -2,6 +2,7 @@ package netctl
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"strings"
 )
@@ -46,6 +47,7 @@ func (n *NFTController) AddDevice(ip string, mark int) error {
 	downloadRule := fmt.Sprintf("add rule inet %s download iifname %q ip daddr %s counter meta mark set %d",
 		n.tableName, n.wanIface, ip, mark)
 
+	log.Printf("nft: adding rules for %s mark=%d (wan=%s)", ip, mark, n.wanIface)
 	if err := n.nft(uploadRule); err != nil {
 		return fmt.Errorf("add upload rule for %s: %w", ip, err)
 	}

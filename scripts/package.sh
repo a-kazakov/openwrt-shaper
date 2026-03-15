@@ -85,7 +85,7 @@ Architecture: ${arch}
 Maintainer: Artem Kazakov <opensource@akazakov.net>
 Section: net
 Description: Starlink Quota Manager - smart traffic shaping with per-device byte buckets
-Depends: kmod-ifb, nftables
+Depends: nftables
 CTLEOF
 
     # Conffiles
@@ -110,10 +110,17 @@ sleep 1
 # Fallback cleanup in case the process didn't clean up properly
 WAN=$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
 [ -z "$WAN" ] && WAN="eth0"
+# Clean up WAN (upload) shaping
 tc qdisc del dev "$WAN" root 2>/dev/null
 tc qdisc del dev "$WAN" ingress 2>/dev/null
+# Clean up LAN (download) shaping — try common LAN interfaces
+for LAN in br-lan br0 lan0; do
+    tc qdisc del dev "$LAN" root 2>/dev/null
+done
+# Clean up legacy IFB from older versions
 tc qdisc del dev ifb0 root 2>/dev/null
 ip link del ifb0 2>/dev/null
+# Clean up nftables
 nft delete table inet slqm 2>/dev/null
 exit 0
 PRERMEOF
