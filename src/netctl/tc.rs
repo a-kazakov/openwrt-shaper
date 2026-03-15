@@ -30,10 +30,10 @@ impl TCController {
 
     /// WAN tree structure:
     ///   1: (root HTB, default 2)
-    ///   └── 1:1 (rate=curveRate, ceil=curveRate)
-    ///       ├── 1:2 (default catch-all, rate=minRate, ceil=curveRate)
+    ///   └── 1:1 (uncapped parent — per-device classes handle shaping)
+    ///       ├── 1:2 (default catch-all)
     ///       └── 1:10+ (per-device classes)
-    fn setup_wan(&self, root_rate_kbit: i32) -> Result<(), String> {
+    fn setup_wan(&self, _root_rate_kbit: i32) -> Result<(), String> {
         let iface = &self.wan_iface;
         run_cmd_ignore("tc", &["qdisc", "del", "dev", iface, "root"]);
 
@@ -41,34 +41,14 @@ impl TCController {
             "qdisc", "add", "dev", iface, "root", "handle", "1:", "htb", "default", "2",
         ])?;
         self.tc(&[
-            "class",
-            "add",
-            "dev",
-            iface,
-            "parent",
-            "1:",
-            "classid",
-            "1:1",
-            "htb",
-            "rate",
-            &format!("{root_rate_kbit}kbit"),
-            "ceil",
-            &format!("{root_rate_kbit}kbit"),
+            "class", "add", "dev", iface, "parent", "1:", "classid", "1:1", "htb",
+            "rate", &format!("{UNCAPPED}kbit"),
+            "ceil", &format!("{UNCAPPED}kbit"),
         ])?;
         self.tc(&[
-            "class",
-            "add",
-            "dev",
-            iface,
-            "parent",
-            "1:1",
-            "classid",
-            "1:2",
-            "htb",
-            "rate",
-            &format!("{}kbit", self.min_rate),
-            "ceil",
-            &format!("{root_rate_kbit}kbit"),
+            "class", "add", "dev", iface, "parent", "1:1", "classid", "1:2", "htb",
+            "rate", &format!("{}kbit", self.min_rate),
+            "ceil", &format!("{UNCAPPED}kbit"),
         ])?;
         if let Err(e) = self.tc(&["qdisc", "add", "dev", iface, "parent", "1:2", "fq_codel"]) {
             warn!("fq_codel on {iface} default: {e}");
@@ -78,88 +58,40 @@ impl TCController {
 
     /// LAN tree structure:
     ///   1: (root HTB, default 2)
-    ///   └── 1:1 (rate=1Gbps, ceil=1Gbps)
-    ///       ├── 1:2 (unmatched/local, rate=900Mbps, ceil=1Gbps)
-    ///       └── 1:3 (download parent, rate=curveRate, ceil=curveRate)
-    ///           ├── 1:4 (default shaped, rate=minRate, ceil=curveRate)
+    ///   └── 1:1 (uncapped)
+    ///       ├── 1:2 (unmatched/local, uncapped)
+    ///       └── 1:3 (download parent, uncapped — per-device classes handle shaping)
+    ///           ├── 1:4 (default shaped)
     ///           └── 1:10+ (per-device classes)
-    fn setup_lan(&self, download_rate_kbit: i32) -> Result<(), String> {
+    fn setup_lan(&self, _download_rate_kbit: i32) -> Result<(), String> {
         let iface = &self.lan_iface;
         run_cmd_ignore("tc", &["qdisc", "del", "dev", iface, "root"]);
 
         self.tc(&[
             "qdisc", "add", "dev", iface, "root", "handle", "1:", "htb", "default", "2",
         ])?;
-        // Root class: high rate to not throttle unmatched traffic
         self.tc(&[
-            "class",
-            "add",
-            "dev",
-            iface,
-            "parent",
-            "1:",
-            "classid",
-            "1:1",
-            "htb",
-            "rate",
-            &format!("{UNCAPPED}kbit"),
-            "ceil",
-            &format!("{UNCAPPED}kbit"),
+            "class", "add", "dev", iface, "parent", "1:", "classid", "1:1", "htb",
+            "rate", &format!("{UNCAPPED}kbit"),
+            "ceil", &format!("{UNCAPPED}kbit"),
         ])?;
-        // Default class for unmatched traffic
-        let mut local_rate = UNCAPPED - download_rate_kbit;
-        if local_rate < self.min_rate {
-            local_rate = self.min_rate;
-        }
         self.tc(&[
-            "class",
-            "add",
-            "dev",
-            iface,
-            "parent",
-            "1:1",
-            "classid",
-            "1:2",
-            "htb",
-            "rate",
-            &format!("{local_rate}kbit"),
-            "ceil",
-            &format!("{UNCAPPED}kbit"),
+            "class", "add", "dev", iface, "parent", "1:1", "classid", "1:2", "htb",
+            "rate", &format!("{UNCAPPED}kbit"),
+            "ceil", &format!("{UNCAPPED}kbit"),
         ])?;
         if let Err(e) = self.tc(&["qdisc", "add", "dev", iface, "parent", "1:2", "fq_codel"]) {
             warn!("fq_codel on {iface} default: {e}");
         }
-        // Download shaping parent
         self.tc(&[
-            "class",
-            "add",
-            "dev",
-            iface,
-            "parent",
-            "1:1",
-            "classid",
-            "1:3",
-            "htb",
-            "rate",
-            &format!("{download_rate_kbit}kbit"),
-            "ceil",
-            &format!("{download_rate_kbit}kbit"),
+            "class", "add", "dev", iface, "parent", "1:1", "classid", "1:3", "htb",
+            "rate", &format!("{UNCAPPED}kbit"),
+            "ceil", &format!("{UNCAPPED}kbit"),
         ])?;
-        // Default shaped class
         self.tc(&[
-            "class",
-            "add",
-            "dev",
-            iface,
-            "parent",
-            "1:3",
-            "classid",
-            "1:4",
-            "htb",
-            "rate",
-            &format!("{}kbit", self.min_rate),
-            "ceil",
-            &format!("{download_rate_kbit}kbit"),
+            "class", "add", "dev", iface, "parent", "1:3", "classid", "1:4", "htb",
+            "rate", &format!("{}kbit", self.min_rate),
+            "ceil", &format!("{UNCAPPED}kbit"),
         ])?;
         if let Err(e) = self.tc(&[
             "qdisc", "add", "dev", iface, "parent", "1:4", "fq_codel",
@@ -169,44 +101,10 @@ impl TCController {
         Ok(())
     }
 
-    /// Change the root class rate on both trees.
-    /// When `has_turbo` is true, the parent ceil is raised to uncapped
-    /// so turbo devices can exceed the curve rate.
-    pub fn update_root_rate(&self, rate_kbit: i32, has_turbo: bool) -> Result<(), String> {
-        let ceil = if has_turbo { UNCAPPED } else { rate_kbit };
-
-        // WAN: update root class 1:1
-        self.tc(&[
-            "class",
-            "change",
-            "dev",
-            &self.wan_iface,
-            "parent",
-            "1:",
-            "classid",
-            "1:1",
-            "htb",
-            "rate",
-            &format!("{rate_kbit}kbit"),
-            "ceil",
-            &format!("{ceil}kbit"),
-        ])?;
-        // LAN: update download parent class 1:3
-        self.tc(&[
-            "class",
-            "change",
-            "dev",
-            &self.lan_iface,
-            "parent",
-            "1:1",
-            "classid",
-            "1:3",
-            "htb",
-            "rate",
-            &format!("{rate_kbit}kbit"),
-            "ceil",
-            &format!("{ceil}kbit"),
-        ])
+    /// No-op — parent classes are always uncapped.
+    /// Per-device classes handle all rate limiting.
+    pub fn update_root_rate(&self, _rate_kbit: i32, _has_turbo: bool) -> Result<(), String> {
+        Ok(())
     }
 
     /// Create a class for a device in both HTB trees.
