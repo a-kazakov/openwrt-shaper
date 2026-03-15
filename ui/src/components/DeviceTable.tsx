@@ -84,10 +84,11 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
             position: "absolute",
             left: `${markPct}%`,
             top: 0,
+            bottom: 0,
             width: 2,
-            height: 6,
             background: markColor,
-            borderRadius: 1,
+            zIndex: 1,
+            pointerEvents: "none",
           }}
           title={
             device.mode === "burst"
@@ -155,7 +156,7 @@ function TurboButton({
         onClick={handleToggle}
         disabled={isLoading}
         icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
-        style={{ height: 24, minWidth: 0, padding: "0 8px", fontSize: 11 }}
+        style={{ height: 26, minWidth: 0, padding: "0 8px", fontSize: 11 }}
       >
         Stop{remaining}
       </Button>
@@ -168,7 +169,7 @@ function TurboButton({
       onClick={handleToggle}
       disabled={isLoading}
       icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
-      style={{ height: 24, minWidth: 0, padding: "0 8px", fontSize: 11 }}
+      style={{ height: 26, minWidth: 0, padding: "0 8px", fontSize: 11 }}
     >
       Turbo
     </Button>
