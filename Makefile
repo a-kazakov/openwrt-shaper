@@ -20,12 +20,7 @@ build-armv7:
 	mkdir -p dist
 	cp target/armv7-unknown-linux-musleabihf/release/$(BINARY) dist/$(BINARY)-armv7
 
-build-mipsle:
-	cross build --target mipsel-unknown-linux-musl --release
-	mkdir -p dist
-	cp target/mipsel-unknown-linux-musl/release/$(BINARY) dist/$(BINARY)-mipsle
-
-build-all: build-arm64 build-armv7 build-mipsle
+build-all: build-arm64 build-armv7
 
 test:
 	cargo test

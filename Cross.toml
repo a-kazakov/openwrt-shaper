@@ -1,3 +1,0 @@
-[target.mipsel-unknown-linux-musl]
-image = "ghcr.io/cross-rs/mipsel-unknown-linux-musl:main"
-build-std = ["core", "alloc", "std", "proc_macro"]

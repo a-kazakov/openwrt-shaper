@@ -9,10 +9,9 @@ PKG_DIR="dist/pkg"
 declare -A ARCH_MAP=(
     ["arm64"]="aarch64_cortex-a53"
     ["armv7"]="arm_cortex-a7_neon-vfpv4"
-    ["mipsle"]="mipsel_24kc"
 )
 
-for suffix in arm64 armv7 mipsle; do
+for suffix in arm64 armv7; do
     binary="dist/slqm-${suffix}"
     [ -f "$binary" ] || continue
 

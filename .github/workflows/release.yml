@@ -29,9 +29,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rust-src
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -40,14 +38,11 @@ jobs:
         run: |
           mkdir -p dist
 
-          cross +nightly build --target aarch64-unknown-linux-musl --release
+          cross build --target aarch64-unknown-linux-musl --release
           cp target/aarch64-unknown-linux-musl/release/slqm dist/slqm-arm64
 
-          cross +nightly build --target armv7-unknown-linux-musleabihf --release
+          cross build --target armv7-unknown-linux-musleabihf --release
           cp target/armv7-unknown-linux-musleabihf/release/slqm dist/slqm-armv7
-
-          cross +nightly build --target mipsel-unknown-linux-musl --release
-          cp target/mipsel-unknown-linux-musl/release/slqm dist/slqm-mipsle
 
       - name: Package ipk files
         run: ./scripts/package.sh
@@ -66,6 +61,5 @@ jobs:
           files: |
             dist/slqm-arm64
             dist/slqm-armv7
-            dist/slqm-mipsle
             dist/pkg/*.ipk
             dist/checksums.txt

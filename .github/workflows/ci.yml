@@ -34,17 +34,13 @@ jobs:
             suffix: arm64
           - target: armv7-unknown-linux-musleabihf
             suffix: armv7
-          - target: mipsel-unknown-linux-musl
-            suffix: mipsle
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rust-src
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build ${{ matrix.suffix }}
-        run: cross +nightly build --target ${{ matrix.target }} --release
+        run: cross build --target ${{ matrix.target }} --release
