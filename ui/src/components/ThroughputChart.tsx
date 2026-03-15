@@ -188,15 +188,15 @@ export default function ThroughputChart({ throughput }: Props) {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div>
-            <span style={{ color: "#555", fontSize: 11 }}>Down </span>
-            <span style={{ color: "#60a5fa", fontSize: 16, fontWeight: 600 }}>
-              {formatBytes(downBytes)}
-            </span>
-          </div>
-          <div>
             <span style={{ color: "#555", fontSize: 11 }}>Up </span>
             <span style={{ color: "#4ade80", fontSize: 16, fontWeight: 600 }}>
               {formatBytes(upBytes)}
+            </span>
+          </div>
+          <div>
+            <span style={{ color: "#555", fontSize: 11 }}>Down </span>
+            <span style={{ color: "#60a5fa", fontSize: 16, fontWeight: 600 }}>
+              {formatBytes(downBytes)}
             </span>
           </div>
         </div>

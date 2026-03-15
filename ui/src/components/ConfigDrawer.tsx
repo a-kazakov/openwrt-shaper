@@ -154,18 +154,24 @@ const derivStyle: React.CSSProperties = {
 // CSS to enlarge slider handle and disable text selection
 const drawerCSS = `
   .config-drawer { user-select: none; -webkit-user-select: none; }
-  .config-drawer .ant-slider-handle::after {
-    width: 20px !important;
-    height: 20px !important;
-    inset-inline-start: -5px !important;
-    inset-block-start: -5px !important;
+  .config-drawer .ant-slider {
+    padding-block: 12px !important;
   }
   .config-drawer .ant-slider-rail,
   .config-drawer .ant-slider-track {
     height: 8px !important;
   }
-  .config-drawer .ant-slider {
-    padding-block: 8px !important;
+  .config-drawer .ant-slider-handle {
+    width: 20px !important;
+    height: 20px !important;
+    margin-top: -6px !important;
+  }
+  .config-drawer .ant-slider-handle::after {
+    width: 20px !important;
+    height: 20px !important;
+    inset-inline-start: 0 !important;
+    inset-block-start: 0 !important;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.3) !important;
   }
 `;
 
@@ -233,9 +239,21 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
     }
   };
 
-  const maxBytesPerSec = (maxMbit * 1000 * 1000) / 8;
+  // Time to burn quota following the curve: integrate dt = total / rate(f) df
+  // rate(f) = minRate + (maxRate - minRate) * f^shape  (bytes/sec)
+  const maxBps = (maxMbit * 1000 * 1000) / 8;
+  const minBps = (minMbit * 1000 * 1000) / 8;
   const quotaBytes = quotaGb * 1073741824;
-  const burnHours = maxBytesPerSec > 0 ? quotaBytes / maxBytesPerSec / 3600 : 0;
+  let burnSeconds = 0;
+  {
+    const steps = 500;
+    for (let i = 0; i < steps; i++) {
+      const f = (i + 0.5) / steps; // midpoint of each slice
+      const rate = minBps + (maxBps - minBps) * Math.pow(f, curveShape);
+      if (rate > 0) burnSeconds += quotaBytes / (rate * steps);
+    }
+  }
+  const burnHours = burnSeconds / 3600;
   const burnLabel =
     burnHours < 1
       ? `${Math.round(burnHours * 60)}m`
@@ -243,8 +261,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
         ? `${burnHours.toFixed(1)}h`
         : `${(burnHours / 24).toFixed(1)}d`;
 
-  const minBytesPerSec = (minMbit * 1000 * 1000) / 8;
-  const gbPerHrAtMin = (minBytesPerSec * 3600) / 1073741824;
+  const gbPerHrAtMin = (minBps * 3600) / 1073741824;
 
   return (
     <Drawer
