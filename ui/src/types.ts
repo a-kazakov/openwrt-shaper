@@ -93,6 +93,7 @@ export interface ConfigValues {
   down_up_ratio: number;
   bucket_duration_sec: number;
   burst_drain_ratio: number;
+  max_burst_kbit: number;
   tick_interval_sec: number;
   save_interval_sec: number;
   device_scan_interval_sec: number;

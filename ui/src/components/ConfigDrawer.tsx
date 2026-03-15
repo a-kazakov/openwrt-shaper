@@ -187,6 +187,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
           ...cfg,
           max_rate_mbit: maxM,
           min_rate_mbit: minM,
+          max_burst_mbit: cfg.max_burst_kbit / 1000,
         });
         setMaxMbit(maxM);
         setMinMbit(minM);
@@ -207,8 +208,12 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
       payload.max_rate_kbit = Math.round(maxMbit * 1000);
       payload.min_rate_kbit = Math.round(minMbit * 1000);
       payload.curve_shape = curveShape;
+      if (values.max_burst_mbit != null) {
+        payload.max_burst_kbit = Math.round(values.max_burst_mbit * 1000);
+      }
       delete (payload as Record<string, unknown>).max_rate_mbit;
       delete (payload as Record<string, unknown>).min_rate_mbit;
+      delete (payload as Record<string, unknown>).max_burst_mbit;
       const cfg = await updateConfig(payload);
       onSaved(cfg);
       onClose();
@@ -392,6 +397,13 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                   step={0.01}
                   style={{ width: "100%" }}
                 />
+              </Form.Item>
+              <Form.Item
+                label="Max Burst Speed (Mbit/s)"
+                name="max_burst_mbit"
+                tooltip="Maximum speed allowed in burst mode. If the burst budget is too small, the actual speed may be lower."
+              >
+                <InputNumber min={1} max={1000} style={{ width: "100%" }} />
               </Form.Item>
               <Form.Item
                 label="Burst Budget Duration (sec)"
