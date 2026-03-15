@@ -562,10 +562,16 @@ impl Engine {
             if !inner.devices.contains_key(&d.mac) {
                 // New device
                 let slot = inner.slot_alloc;
-                inner.slot_alloc += 1;
                 let mark = 100 + slot;
 
-                let bucket = DeviceBucket::new(curve_rate_bps, snap.bucket_duration_sec);
+                let mut bucket = DeviceBucket::new(curve_rate_bps, snap.bucket_duration_sec);
+                // Compute burst ceiling before using it (otherwise it's 0)
+                bucket.update(
+                    curve_rate_bps,
+                    snap.bucket_duration_sec,
+                    snap.tick_interval_sec,
+                    snap.burst_drain_ratio,
+                );
 
                 let mut dev = DeviceState {
                     mac: d.mac.clone(),
@@ -595,9 +601,15 @@ impl Engine {
                     dev.cycle_bytes = cb;
                 }
 
+                // Ensure HTB trees exist (may have been reset by network restart)
+                let rate_kbit = inner.curve.rate(remaining);
+                if let Err(e) = inner.tc.setup_htb(rate_kbit) {
+                    error!("engine: re-setup HTB trees: {e}");
+                }
+
                 // Add tc classes and nftables rules
                 let device_count = (inner.devices.len() + 1).max(1) as i32;
-                let mut fair_share = inner.curve.rate(remaining) / device_count;
+                let mut fair_share = rate_kbit / device_count;
                 if fair_share < snap.min_rate_kbit {
                     fair_share = snap.min_rate_kbit;
                 }
@@ -613,6 +625,9 @@ impl Engine {
                     error!("engine: add nft rules for {}: {e}", d.mac);
                     continue;
                 }
+
+                // Only allocate slot after successful setup
+                inner.slot_alloc += 1;
 
                 info!(
                     "engine: new device {} ({}) slot={}",
