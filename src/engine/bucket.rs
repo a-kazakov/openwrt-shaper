@@ -1,5 +1,7 @@
 use crate::model::DeviceMode;
 
+const BURST_CEIL_FLOOR_KBIT: i32 = 1000;
+
 /// Per-device byte token bucket with dynamic capacity and hysteresis-based
 /// mode transitions.
 ///
@@ -72,8 +74,8 @@ impl DeviceBucket {
         // Step 4: recompute burst ceiling from (possibly capped) shape_at
         let burst_bytes_per_sec = self.shape_at as f64 / tick_sec as f64;
         self.burst_ceil_kbit = (burst_bytes_per_sec * 8.0 / 1000.0) as i32;
-        if self.burst_ceil_kbit < 1000 {
-            self.burst_ceil_kbit = 1000;
+        if self.burst_ceil_kbit < BURST_CEIL_FLOOR_KBIT {
+            self.burst_ceil_kbit = BURST_CEIL_FLOOR_KBIT;
         }
         let shape_at = self.shape_at;
         let unshape_at = self.unshape_at;
@@ -307,7 +309,7 @@ mod tests {
         b.update(100, 1, 2, 300_000);
 
         let ceil = b.burst_ceil_kbit();
-        assert!(ceil >= 1000, "burst ceil floor = {ceil}, want >= 1000");
+        assert!(ceil >= BURST_CEIL_FLOOR_KBIT, "burst ceil floor = {ceil}, want >= {BURST_CEIL_FLOOR_KBIT}");
     }
 
     #[test]

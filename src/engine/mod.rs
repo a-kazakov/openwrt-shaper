@@ -23,6 +23,10 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
+const THROUGHPUT_WINDOW_SEC: i32 = 30;
+const THROUGHPUT_HISTORY_SAMPLES: usize = 120;
+const DEVICE_MARK_BASE: i32 = 100;
+
 /// Internal per-device state held by the engine.
 struct DeviceState {
     mac: String,
@@ -442,7 +446,7 @@ impl Engine {
         inner.sample_accum_down += tick_down_total;
         inner.sample_accum_up += tick_up_total;
         inner.sample_accum_ticks += 1;
-        let ticks_per_sample = 30 / snap.tick_interval_sec;
+        let ticks_per_sample = THROUGHPUT_WINDOW_SEC / snap.tick_interval_sec;
         if inner.sample_accum_ticks >= ticks_per_sample {
             let window_sec = inner.sample_accum_ticks as i64 * snap.tick_interval_sec as i64;
             let sample = ThroughputSample {
@@ -454,8 +458,7 @@ impl Engine {
             inner.sample_accum_down = 0;
             inner.sample_accum_up = 0;
             inner.sample_accum_ticks = 0;
-            // Keep last 120 samples (1 hour at 30s intervals)
-            if inner.throughput_samples.len() > 120 {
+            if inner.throughput_samples.len() > THROUGHPUT_HISTORY_SAMPLES {
                 inner.throughput_samples.remove(0);
             }
         }
@@ -561,7 +564,7 @@ impl Engine {
             if !inner.devices.contains_key(&d.mac) {
                 // New device
                 let slot = inner.slot_alloc;
-                let mark = 100 + slot;
+                let mark = DEVICE_MARK_BASE + slot;
 
                 let mut bucket = DeviceBucket::new(curve_rate_bps, snap.bucket_duration_sec);
                 // Compute burst ceiling before using it (otherwise it's 0)
