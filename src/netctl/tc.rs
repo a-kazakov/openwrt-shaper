@@ -136,10 +136,12 @@ impl TCController {
         let handle = format!("{}:", 10 + slot);
         let mark = (100 + slot).to_string();
 
+        // rate == ceil: Rust state machine controls mode, HTB enforces hard cap
+        let rate = ceil_kbit.max(rate_kbit).max(1);
         // WAN: device class under 1:1
-        self.add_class_on_iface(&self.wan_iface, "1:1", &class_id, &handle, &mark, rate_kbit, ceil_kbit)?;
+        self.add_class_on_iface(&self.wan_iface, "1:1", &class_id, &handle, &mark, rate, rate)?;
         // LAN: device class under 1:3 (download parent)
-        self.add_class_on_iface(&self.lan_iface, "1:3", &class_id, &handle, &mark, rate_kbit, ceil_kbit)?;
+        self.add_class_on_iface(&self.lan_iface, "1:3", &class_id, &handle, &mark, rate, rate)?;
         Ok(())
     }
 
@@ -181,6 +183,8 @@ impl TCController {
     }
 
     /// Update both HTB trees based on device mode.
+    /// rate == ceil everywhere — Rust state machine controls mode transitions,
+    /// HTB just enforces the current hard cap.
     pub fn set_device_mode(
         &self,
         slot: i32,
@@ -191,20 +195,20 @@ impl TCController {
     ) {
         match mode {
             "turbo" => {
-                self.set_class(&self.wan_iface, slot, "1:1", fair_share_kbit, UNCAPPED);
-                self.set_class(&self.lan_iface, slot, "1:3", fair_share_kbit, UNCAPPED);
+                self.set_class(&self.wan_iface, slot, "1:1", UNCAPPED, UNCAPPED);
+                self.set_class(&self.lan_iface, slot, "1:3", UNCAPPED, UNCAPPED);
             }
             "burst" => {
-                let down_ceil = (burst_ceil_kbit as f64 * down_up_ratio) as i32;
-                let up_ceil = burst_ceil_kbit - down_ceil;
-                self.set_class(&self.wan_iface, slot, "1:1", fair_share_kbit, up_ceil.max(1));
-                self.set_class(&self.lan_iface, slot, "1:3", fair_share_kbit, down_ceil.max(1));
+                let down = (burst_ceil_kbit as f64 * down_up_ratio) as i32;
+                let up = burst_ceil_kbit - down;
+                self.set_class(&self.wan_iface, slot, "1:1", up.max(1), up.max(1));
+                self.set_class(&self.lan_iface, slot, "1:3", down.max(1), down.max(1));
             }
             "sustained" => {
-                let down_ceil = (fair_share_kbit as f64 * down_up_ratio) as i32;
-                let up_ceil = fair_share_kbit - down_ceil;
-                self.set_class(&self.wan_iface, slot, "1:1", up_ceil.max(1), up_ceil.max(1));
-                self.set_class(&self.lan_iface, slot, "1:3", down_ceil.max(1), down_ceil.max(1));
+                let down = (fair_share_kbit as f64 * down_up_ratio) as i32;
+                let up = fair_share_kbit - down;
+                self.set_class(&self.wan_iface, slot, "1:1", up.max(1), up.max(1));
+                self.set_class(&self.lan_iface, slot, "1:3", down.max(1), down.max(1));
             }
             _ => {
                 info!("unknown mode: {mode}");
