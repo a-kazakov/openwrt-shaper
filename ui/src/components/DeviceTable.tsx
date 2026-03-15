@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Progress, Button, Card, Spin } from "antd";
+import { Button, Card, Spin } from "antd";
 import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
 import { formatBytes, formatRate, formatDuration, formatMB } from "../utils";
@@ -63,20 +63,31 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
   const shapePct = thresholdPct(device.bucket_shape_at, device.bucket_capacity);
   const unshapePct = thresholdPct(device.bucket_unshape_at, device.bucket_capacity);
 
-  // In burst mode, show the shape_at mark (where it will drop to throttled)
-  // In sustained/throttled mode, show the unshape_at mark (where it will return to burst)
   const showMark = device.mode !== "turbo";
   const markPct = device.mode === "burst" ? shapePct : unshapePct;
   const markColor = device.mode === "burst" ? "#fbbf24" : "#60a5fa";
 
   return (
-    <div style={{ position: "relative" }}>
-      <Progress
-        percent={device.bucket_pct}
-        showInfo={false}
-        strokeColor={bucketColor(device.bucket_pct)}
-        trailColor="#222"
-        size={["100%", 6]}
+    <div
+      style={{
+        position: "relative",
+        height: 6,
+        borderRadius: 3,
+        background: "#222",
+        overflow: "visible",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          height: "100%",
+          width: `${Math.max(0, Math.min(100, device.bucket_pct))}%`,
+          borderRadius: 3,
+          background: bucketColor(device.bucket_pct),
+          transition: "width 0.3s",
+        }}
       />
       {showMark && markPct > 0 && markPct < 100 && (
         <div
@@ -84,11 +95,11 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
             position: "absolute",
             left: `${markPct}%`,
             top: 0,
-            bottom: 0,
+            height: "100%",
             width: 2,
             background: markColor,
             zIndex: 1,
-            pointerEvents: "none",
+            marginLeft: -1,
           }}
           title={
             device.mode === "burst"

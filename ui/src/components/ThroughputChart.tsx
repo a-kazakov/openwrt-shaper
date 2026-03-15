@@ -186,20 +186,18 @@ export default function ThroughputChart({ throughput }: Props) {
         >
           {formatWindowLabel(durationSec)}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <div>
-            <span style={{ color: "#555", fontSize: 11 }}>Up </span>
-            <span style={{ color: "#4ade80", fontSize: 16, fontWeight: 600 }}>
-              {formatBytes(upBytes)}
-            </span>
-          </div>
-          <div>
-            <span style={{ color: "#555", fontSize: 11 }}>Down </span>
-            <span style={{ color: "#60a5fa", fontSize: 16, fontWeight: 600 }}>
-              {formatBytes(downBytes)}
-            </span>
-          </div>
-        </div>
+        <table style={{ borderCollapse: "collapse" }}>
+          <tbody>
+            <tr>
+              <td style={{ color: "#555", fontSize: 11, paddingRight: 6 }}>Up</td>
+              <td style={{ color: "#4ade80", fontSize: 16, fontWeight: 600 }}>{formatBytes(upBytes)}</td>
+            </tr>
+            <tr>
+              <td style={{ color: "#555", fontSize: 11, paddingRight: 6 }}>Down</td>
+              <td style={{ color: "#60a5fa", fontSize: 16, fontWeight: 600 }}>{formatBytes(downBytes)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
