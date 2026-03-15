@@ -1,10 +1,13 @@
 BINARY := slqm
 
-.PHONY: all build clean test lint build-all package
+.PHONY: all build clean test lint build-all package ui-build
 
 all: build
 
-build:
+ui-build:
+	cd ui && npm ci && npm run build
+
+build: ui-build
 	cargo build --release
 	mkdir -p dist
 	cp target/release/$(BINARY) dist/$(BINARY)
