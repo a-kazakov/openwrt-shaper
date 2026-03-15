@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Progress, Button, Card } from "antd";
-import { ThunderboltOutlined } from "@ant-design/icons";
+import { useState, useEffect, useRef } from "react";
+import { Progress, Button, Card, Spin } from "antd";
+import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
 import { formatBytes, formatRate, formatDuration, formatMB } from "../utils";
 import { enableTurbo, cancelTurbo } from "../api";
@@ -29,6 +29,26 @@ function bucketColor(pct: number): string {
   return "#4ade80";
 }
 
+function bucketStatus(device: DeviceSnapshot): { text: string; color: string } | null {
+  const deviceSpeedBps = device.rate_down_bps + device.rate_up_bps;
+  const refillBps = device.bucket_refill_bps;
+  const net = refillBps - deviceSpeedBps;
+
+  if (device.bucket_pct >= 100 && deviceSpeedBps === 0) {
+    return { text: "Full", color: "#4ade80" };
+  }
+  if (device.bucket_pct <= 0 && refillBps === 0) {
+    return { text: "Empty", color: "#ef4444" };
+  }
+  if (net > 0) {
+    return { text: `Refilling at ${formatRate(net)}`, color: "#4ade80" };
+  }
+  if (net < 0) {
+    return { text: `Draining at ${formatRate(-net)}`, color: "#fbbf24" };
+  }
+  return null;
+}
+
 function TurboButton({
   device,
   onMessage,
@@ -36,10 +56,21 @@ function TurboButton({
   device: DeviceSnapshot;
   onMessage: Props["onMessage"];
 }) {
-  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<boolean | null>(null);
+  const pendingRef = useRef<boolean | null>(null);
+
+  // Clear pending when WebSocket state catches up
+  useEffect(() => {
+    if (pendingRef.current !== null && device.turbo === pendingRef.current) {
+      setPending(null);
+      pendingRef.current = null;
+    }
+  }, [device.turbo]);
 
   const handleToggle = async () => {
-    setLoading(true);
+    const wantTurbo = !device.turbo;
+    setPending(wantTurbo);
+    pendingRef.current = wantTurbo;
     try {
       if (device.turbo) {
         await cancelTurbo(device.mac);
@@ -49,29 +80,16 @@ function TurboButton({
         onMessage(`Turbo enabled for ${device.hostname || device.mac}`, "success");
       }
     } catch (e) {
+      setPending(null);
+      pendingRef.current = null;
       onMessage(
         `Turbo failed: ${e instanceof Error ? e.message : String(e)}`,
         "error",
       );
-    } finally {
-      setLoading(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div style={{ minHeight: 36, display: "flex", alignItems: "center" }}>
-        <Progress
-          percent={99.9}
-          showInfo={false}
-          strokeColor="#4ade80"
-          trailColor="#222"
-          size={["100%", 8]}
-          status="active"
-        />
-      </div>
-    );
-  }
+  const isLoading = pending !== null;
 
   if (device.turbo) {
     let remaining = "";
@@ -85,7 +103,8 @@ function TurboButton({
         size="small"
         danger
         onClick={handleToggle}
-        icon={<ThunderboltOutlined />}
+        disabled={isLoading}
+        icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
         style={{ minHeight: 36, minWidth: 44 }}
       >
         Stop{remaining}
@@ -97,7 +116,8 @@ function TurboButton({
     <Button
       size="small"
       onClick={handleToggle}
-      icon={<ThunderboltOutlined />}
+      disabled={isLoading}
+      icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
       style={{ minHeight: 36, minWidth: 44 }}
     >
       Turbo
@@ -115,6 +135,7 @@ function DeviceCard({
   const name = device.hostname || device.ip || device.mac;
   const bucketMB = formatMB(device.bucket_bytes);
   const capacityMB = formatMB(device.bucket_capacity);
+  const status = bucketStatus(device);
 
   return (
     <Card
@@ -175,9 +196,9 @@ function DeviceCard({
           trailColor="#222"
           size={["100%", 6]}
         />
-        {device.bucket_refill_bps > 0 && (
-          <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>
-            Refilling at {formatRate(device.bucket_refill_bps)}
+        {status && (
+          <div style={{ color: status.color, fontSize: 11, marginTop: 2 }}>
+            {status.text}
           </div>
         )}
       </div>
