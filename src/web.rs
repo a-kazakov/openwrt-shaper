@@ -1,4 +1,4 @@
-use axum::http::{header, StatusCode};
+use axum::http::{header, StatusCode, Uri};
 use axum::response::IntoResponse;
 use rust_embed::Embed;
 
@@ -7,19 +7,9 @@ use rust_embed::Embed;
 struct WebAssets;
 
 /// Serve embedded static files from the web/ directory.
-pub async fn static_handler(
-    axum::extract::Path(path): axum::extract::Path<String>,
-) -> impl IntoResponse {
-    serve_file(&path)
-}
-
-/// Serve the root index or a specific file.
-pub fn serve_file(path: &str) -> impl IntoResponse {
-    let path = if path.is_empty() || path == "/" {
-        "index.html"
-    } else {
-        path.trim_start_matches('/')
-    };
+pub async fn static_handler(uri: Uri) -> impl IntoResponse {
+    let path = uri.path().trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
 
     match WebAssets::get(path) {
         Some(content) => {

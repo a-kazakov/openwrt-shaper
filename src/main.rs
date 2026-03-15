@@ -10,7 +10,7 @@ pub mod web;
 use clap::Parser;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -99,8 +99,18 @@ async fn main() {
     let store = match store::Store::open(db_path) {
         Ok(s) => Arc::new(s),
         Err(e) => {
-            error!("failed to open database: {e}");
-            std::process::exit(1);
+            warn!("database corrupt or incompatible, recreating: {e}");
+            if let Err(rm_err) = std::fs::remove_file(db_path) {
+                error!("failed to remove corrupt database: {rm_err}");
+                std::process::exit(1);
+            }
+            match store::Store::open(db_path) {
+                Ok(s) => Arc::new(s),
+                Err(e2) => {
+                    error!("failed to create new database: {e2}");
+                    std::process::exit(1);
+                }
+            }
         }
     };
 
@@ -165,39 +175,20 @@ async fn main() {
         snap.listen_addr.clone()
     };
 
-    // Start HTTP servers (separate IPv4 and IPv6)
-    let ipv4_addr = listen_addr.clone();
-    let ipv6_addr = listen_addr.replace("0.0.0.0", "[::]");
+    // Start HTTP server (IPv4 only)
+    info!("starting HTTP server on {listen_addr}");
 
-    info!("starting HTTP server on {ipv4_addr} and {ipv6_addr}");
-
-    let app4 = app.clone();
-    let ipv4_server = tokio::spawn(async move {
-        let listener = match tokio::net::TcpListener::bind(&ipv4_addr).await {
+    let server = tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(&listen_addr).await {
             Ok(l) => l,
             Err(e) => {
-                error!("failed to bind IPv4 {ipv4_addr}: {e}");
+                error!("failed to bind {listen_addr}: {e}");
                 return;
             }
         };
-        info!("IPv4 listener ready on {ipv4_addr}");
-        if let Err(e) = axum::serve(listener, app4).await {
-            error!("IPv4 server error: {e}");
-        }
-    });
-
-    let ipv6_server = tokio::spawn(async move {
-        let listener = match tokio::net::TcpListener::bind(&ipv6_addr).await {
-            Ok(l) => l,
-            Err(e) => {
-                // IPv6 may not be available, don't fail
-                info!("IPv6 bind failed (non-fatal): {e}");
-                return;
-            }
-        };
-        info!("IPv6 listener ready on {ipv6_addr}");
+        info!("listening on {listen_addr}");
         if let Err(e) = axum::serve(listener, app).await {
-            error!("IPv6 server error: {e}");
+            error!("server error: {e}");
         }
     });
 
@@ -216,7 +207,5 @@ async fn main() {
 
     info!("slqm shutdown complete");
 
-    // Abort server tasks
-    ipv4_server.abort();
-    ipv6_server.abort();
+    server.abort();
 }
