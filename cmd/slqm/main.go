@@ -115,43 +115,46 @@ func main() {
 	}
 	api.SetupRoutes(mux, handler, hub, webFS)
 
-	// Start HTTP server
-	server := &http.Server{
-		Addr:         snap.ListenAddr,
-		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-	}
-
-	// Listen on both IPv4 and IPv6 separately (like nginx does).
-	// Go's dual-stack socket (:::port) doesn't receive IPv4 connections
-	// on GL.iNet's MediaTek kernel despite bindv6only=0.
+	// Listen on both IPv4 and IPv6 with separate http.Server instances.
+	// Go's dual-stack socket doesn't receive IPv4 on GL.iNet's kernel,
+	// and calling Serve() twice on one server may cause Accept starvation.
 	listenPort := netctl.ExtractPort(snap.ListenAddr)
 	netctl.OpenFirewallPort(listenPort)
 
-	ln4, err := net.Listen("tcp4", "0.0.0.0:"+listenPort)
-	if err != nil {
-		log.Printf("warning: IPv4 listen failed: %v", err)
+	server6 := &http.Server{
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
 	}
 	ln6, err := net.Listen("tcp6", "[::]:"+listenPort)
 	if err != nil {
 		log.Printf("warning: IPv6 listen failed: %v", err)
 	}
 
-	// Start all goroutines
-	if ln4 != nil {
-		go func() {
-			log.Printf("HTTP server listening on %s (IPv4)", ln4.Addr())
-			if err := server.Serve(ln4); err != http.ErrServerClosed {
-				log.Printf("http server (IPv4): %v", err)
-			}
-		}()
+	server4 := &http.Server{
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
 	}
+	ln4, err := net.Listen("tcp4", "0.0.0.0:"+listenPort)
+	if err != nil {
+		log.Printf("warning: IPv4 listen failed: %v", err)
+	}
+
+	// Start all goroutines
 	if ln6 != nil {
 		go func() {
 			log.Printf("HTTP server listening on %s (IPv6)", ln6.Addr())
-			if err := server.Serve(ln6); err != http.ErrServerClosed {
+			if err := server6.Serve(ln6); err != http.ErrServerClosed {
 				log.Printf("http server (IPv6): %v", err)
+			}
+		}()
+	}
+	if ln4 != nil {
+		go func() {
+			log.Printf("HTTP server listening on %s (IPv4)", ln4.Addr())
+			if err := server4.Serve(ln4); err != http.ErrServerClosed {
+				log.Printf("http server (IPv4): %v", err)
 			}
 		}()
 	}
@@ -188,10 +191,11 @@ func main() {
 	// Stop WebSocket hub
 	close(stopWS)
 
-	// Shutdown HTTP server
+	// Shutdown HTTP servers
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
-	server.Shutdown(shutdownCtx)
+	server6.Shutdown(shutdownCtx)
+	server4.Shutdown(shutdownCtx)
 
 	// Close firewall port
 	netctl.CloseFirewallPort(listenPort)
