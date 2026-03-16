@@ -68,6 +68,10 @@ export function enableTurbo(
   });
 }
 
+export function listInterfaces(): Promise<{ interfaces: string[] }> {
+  return request("/api/v1/interfaces");
+}
+
 export function cancelTurbo(mac: string): Promise<StateSnapshot> {
   return request(`/api/v1/device/${encodeURIComponent(mac)}/turbo`, {
     method: "DELETE",

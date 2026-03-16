@@ -49,6 +49,21 @@ pub fn detect_lan_iface(wan_iface: &str) -> Result<String, String> {
     Err("no LAN interface found".to_string())
 }
 
+/// List all network interfaces from /sys/class/net, excluding lo.
+pub fn list_interfaces() -> Vec<String> {
+    let entries = match std::fs::read_dir("/sys/class/net") {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
+    let mut ifaces: Vec<String> = entries
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n != "lo")
+        .collect();
+    ifaces.sort();
+    ifaces
+}
+
 /// Detect the LAN subnet (e.g. "192.168.8.0/24").
 pub fn detect_lan_subnet(lan_iface: &str) -> Result<String, String> {
     let output = run_cmd("ip", &["-o", "-4", "addr", "show", "dev", lan_iface])?;
