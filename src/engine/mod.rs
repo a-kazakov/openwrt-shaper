@@ -422,20 +422,22 @@ impl Engine {
             );
         }
 
-        // Refill after tc update: shared pool divided among non-full devices
-        let mut non_full_count = 0i64;
-        for dev in inner.devices.values() {
-            if !dev.bucket.is_full() {
-                non_full_count += 1;
-            }
-        }
-        if non_full_count > 0 {
-            let refill_per_device =
-                curve_rate_bps * snap.tick_interval_sec as i64 / non_full_count;
-            for dev in inner.devices.values_mut() {
-                if !dev.bucket.is_full() {
-                    dev.bucket.refill(refill_per_device);
-                }
+        // Water-filling refill: distribute budget fairly without exceeding curve rate.
+        // Devices closest to full get served first so their overflow is redistributed
+        // to hungrier devices, ensuring no tokens are wasted.
+        let total_budget = curve_rate_bps * snap.tick_interval_sec as i64;
+        let mut spaces: Vec<(String, i64)> = inner
+            .devices
+            .iter()
+            .filter(|(_, dev)| !dev.bucket.is_full())
+            .map(|(mac, dev)| (mac.clone(), dev.bucket.space_remaining()))
+            .collect();
+
+        let allocs = water_fill_refill(total_budget, &mut spaces);
+
+        for (mac, alloc) in &allocs {
+            if let Some(dev) = inner.devices.get_mut(mac) {
+                dev.bucket.refill(*alloc);
             }
         }
 
@@ -949,5 +951,147 @@ impl Engine {
     pub fn set_dish_status(&self, status: Option<DishStatus>) {
         let mut inner = self.inner.write().unwrap();
         inner.dish_status = status;
+    }
+}
+
+/// Distribute `budget` bytes across devices using water-filling.
+/// `spaces` is a list of (id, space_remaining) for each non-full bucket.
+/// Returns a list of (id, allocation) pairs. Total allocation never exceeds budget.
+/// Sorted ascending by space so nearly-full devices are filled first, with their
+/// leftover budget redistributed to hungrier devices.
+fn water_fill_refill(budget: i64, spaces: &mut [(String, i64)]) -> Vec<(String, i64)> {
+    spaces.sort_by_key(|&(_, space)| space);
+    let mut remaining = budget;
+    let n = spaces.len();
+    let mut result = Vec::with_capacity(n);
+
+    for (i, (id, space)) in spaces.iter().enumerate() {
+        if remaining <= 0 {
+            break;
+        }
+        let devices_left = (n - i) as i64;
+        let fair_share = remaining / devices_left;
+        let alloc = fair_share.min(*space);
+        if alloc > 0 {
+            result.push((id.clone(), alloc));
+            remaining -= alloc;
+        }
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn water_fill_equal_space() {
+        // 3 devices, each needing 100 bytes, budget = 300
+        let mut spaces = vec![
+            ("a".into(), 100),
+            ("b".into(), 100),
+            ("c".into(), 100),
+        ];
+        let result = water_fill_refill(300, &mut spaces);
+        let total: i64 = result.iter().map(|(_, a)| a).sum();
+        assert_eq!(total, 300);
+        for (_, alloc) in &result {
+            assert_eq!(*alloc, 100);
+        }
+    }
+
+    #[test]
+    fn water_fill_budget_less_than_space() {
+        // 3 devices need 1000 each, budget = 300 → 100 each
+        let mut spaces = vec![
+            ("a".into(), 1000),
+            ("b".into(), 1000),
+            ("c".into(), 1000),
+        ];
+        let result = water_fill_refill(300, &mut spaces);
+        let total: i64 = result.iter().map(|(_, a)| a).sum();
+        assert_eq!(total, 300);
+        for (_, alloc) in &result {
+            assert_eq!(*alloc, 100);
+        }
+    }
+
+    #[test]
+    fn water_fill_overflow_redistribution() {
+        // Device A needs only 10, B and C need 1000. Budget = 300.
+        // A gets min(300/3=100, 10) = 10, remaining = 290
+        // B gets min(290/2=145, 1000) = 145, remaining = 145
+        // C gets min(145/1=145, 1000) = 145, remaining = 0
+        let mut spaces = vec![
+            ("a".into(), 10),
+            ("b".into(), 1000),
+            ("c".into(), 1000),
+        ];
+        let result = water_fill_refill(300, &mut spaces);
+        let total: i64 = result.iter().map(|(_, a)| a).sum();
+        assert_eq!(total, 300, "total must equal budget");
+
+        let map: HashMap<String, i64> = result.into_iter().collect();
+        assert_eq!(map["a"], 10);
+        assert_eq!(map["b"], 145);
+        assert_eq!(map["c"], 145);
+    }
+
+    #[test]
+    fn water_fill_all_nearly_full() {
+        // Two devices need only 5 bytes each. Budget = 1000.
+        // A gets min(500, 5) = 5, remaining = 995
+        // B gets min(995, 5) = 5, remaining = 990
+        // Total = 10, not 1000 (excess budget is not forced)
+        let mut spaces = vec![("a".into(), 5), ("b".into(), 5)];
+        let result = water_fill_refill(1000, &mut spaces);
+        let total: i64 = result.iter().map(|(_, a)| a).sum();
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn water_fill_zero_budget() {
+        let mut spaces = vec![("a".into(), 100)];
+        let result = water_fill_refill(0, &mut spaces);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn water_fill_no_devices() {
+        let mut spaces: Vec<(String, i64)> = vec![];
+        let result = water_fill_refill(1000, &mut spaces);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn water_fill_single_device() {
+        let mut spaces = vec![("a".into(), 500)];
+        // Budget exceeds space
+        let result = water_fill_refill(1000, &mut spaces);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].1, 500);
+    }
+
+    #[test]
+    fn water_fill_mixed_sizes() {
+        // A needs 50, B needs 200, C needs 1000. Budget = 600.
+        // Sorted: A(50), B(200), C(1000)
+        // A: min(200, 50) = 50, remaining = 550
+        // B: min(275, 200) = 200, remaining = 350
+        // C: min(350, 1000) = 350, remaining = 0
+        let mut spaces = vec![
+            ("c".into(), 1000),
+            ("a".into(), 50),
+            ("b".into(), 200),
+        ];
+        let result = water_fill_refill(600, &mut spaces);
+        let total: i64 = result.iter().map(|(_, a)| a).sum();
+        assert_eq!(total, 600);
+
+        let map: HashMap<String, i64> = result.into_iter().collect();
+        assert_eq!(map["a"], 50);
+        assert_eq!(map["b"], 200);
+        assert_eq!(map["c"], 350);
     }
 }
