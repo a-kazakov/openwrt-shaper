@@ -20,11 +20,25 @@ function ifaceLabel(iface: InterfaceInfo): string {
   return parts.join(" · ");
 }
 
-function ifaceOptions(interfaces: InterfaceInfo[]) {
+// WAN: ethernet/wireless first, LAN: bridges first
+function ifaceOptions(interfaces: InterfaceInfo[], role: "wan" | "lan") {
+  const sorted = [...interfaces].sort((a, b) => {
+    const aRelevant = role === "wan"
+      ? (a.kind === "ethernet" || a.kind === "wireless" ? 0 : 1)
+      : (a.kind === "bridge" ? 0 : 1);
+    const bRelevant = role === "wan"
+      ? (b.kind === "ethernet" || b.kind === "wireless" ? 0 : 1)
+      : (b.kind === "bridge" ? 0 : 1);
+    if (aRelevant !== bRelevant) return aRelevant - bRelevant;
+    return a.name.localeCompare(b.name);
+  });
+  const autoLabel = role === "wan"
+    ? "auto (detect from default route)"
+    : "auto (detect bridge interface)";
   return (
     <>
-      <Select.Option value="auto">auto (detect from default route)</Select.Option>
-      {interfaces.map((iface) => (
+      <Select.Option value="auto">{autoLabel}</Select.Option>
+      {sorted.map((iface) => (
         <Select.Option key={iface.name} value={iface.name}>
           <span>{iface.name}</span>
           <span style={{ color: "#666", fontSize: 12, marginLeft: 8 }}>
@@ -399,7 +413,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
               <span style={{ color: "#fff" }}>{burnLabel}</span>
             </div>
             <div style={derivStyle}>
-              <Tooltip title="Maximum possible hourly consumption after quota is exhausted (without turbo). Actual usage depends on device activity. Can be used to estimate worst-case overage charges.">
+              <Tooltip title="Maximum possible hourly consumption after quota is exhausted (without turbo). Can be used to estimate worst-case overage charges.">
                 <span style={{ borderBottom: "1px dashed #555", cursor: "help" }}>Max consumption at min rate</span>
               </Tooltip>
               <span style={{ color: "#fff" }}>{gbPerHrAtMin.toFixed(2)} GB/hr</span>
@@ -464,7 +478,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 tooltip="Upstream-facing network interface. Set to 'auto' to detect from the default route."
                 extra={resolvedWan ? `Using: ${resolvedWan}` : undefined}
               >
-                <Select>{ifaceOptions(interfaces)}</Select>
+                <Select>{ifaceOptions(interfaces, "wan")}</Select>
               </Form.Item>
               <Form.Item
                 label="LAN Interface"
@@ -472,7 +486,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 tooltip="LAN bridge interface where download shaping is applied. Set to 'auto' to detect."
                 extra={resolvedLan ? `Using: ${resolvedLan}` : undefined}
               >
-                <Select>{ifaceOptions(interfaces)}</Select>
+                <Select>{ifaceOptions(interfaces, "lan")}</Select>
               </Form.Item>
               <Form.Item
                 label="Dish Address"
