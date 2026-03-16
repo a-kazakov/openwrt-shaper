@@ -306,18 +306,38 @@ impl Config {
         }
     }
 
+    /// True if WAN interface is set to "auto" (auto-detected).
+    pub fn is_wan_auto(&self) -> bool {
+        self.inner.read().unwrap().values.wan_iface == "auto"
+    }
+
+    /// True if LAN interface is set to "auto" (auto-detected).
+    pub fn is_lan_auto(&self) -> bool {
+        self.inner.read().unwrap().values.lan_iface == "auto"
+    }
+
     /// Return the config values as a JSON Value (for API responses).
-    /// Includes `resolved_wan` and `resolved_lan` fields showing
-    /// the actual interfaces in use.
+    /// `resolved_wan`/`resolved_lan` show the actual interface in use,
+    /// whether auto-detected or explicitly configured.
     pub fn to_json(&self) -> serde_json::Value {
         let inner = self.inner.read().unwrap();
         let mut json = serde_json::to_value(&inner.values).unwrap();
         if let Some(obj) = json.as_object_mut() {
-            if let Some(ref wan) = inner.resolved_wan {
-                obj.insert("resolved_wan".to_string(), serde_json::Value::String(wan.clone()));
+            let ewan = if inner.values.wan_iface == "auto" {
+                inner.resolved_wan.clone()
+            } else {
+                Some(inner.values.wan_iface.clone())
+            };
+            let elan = if inner.values.lan_iface == "auto" {
+                inner.resolved_lan.clone()
+            } else {
+                Some(inner.values.lan_iface.clone())
+            };
+            if let Some(wan) = ewan {
+                obj.insert("resolved_wan".to_string(), serde_json::Value::String(wan));
             }
-            if let Some(ref lan) = inner.resolved_lan {
-                obj.insert("resolved_lan".to_string(), serde_json::Value::String(lan.clone()));
+            if let Some(lan) = elan {
+                obj.insert("resolved_lan".to_string(), serde_json::Value::String(lan));
             }
         }
         json

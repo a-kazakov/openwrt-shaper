@@ -149,3 +149,8 @@ pub async fn handle_set_bucket(
 pub async fn handle_history() -> impl IntoResponse {
     Json(json!({"samples": []}))
 }
+
+pub async fn handle_list_interfaces() -> impl IntoResponse {
+    let ifaces = crate::netctl::devices::list_interfaces();
+    Json(json!({"interfaces": ifaces}))
+}

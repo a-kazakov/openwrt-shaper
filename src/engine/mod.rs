@@ -473,64 +473,67 @@ impl Engine {
     }
 
     fn scan_devices(&self) {
-        // Check for WAN interface change
-        if let Ok(current_wan) = devices::detect_wan_iface() {
-            let mut inner = self.inner.write().unwrap();
-            let snap = inner.cfg.snapshot();
-            if current_wan != snap.wan_iface {
-                info!(
-                    "engine: WAN interface changed from {} to {}, rebuilding",
-                    snap.wan_iface, current_wan
-                );
+        // Re-evaluate auto-detected interfaces on each scan.
+        // Only triggers rebuild if config is "auto" AND the detected interface changed.
+        if self.inner.read().unwrap().cfg.is_wan_auto() {
+            if let Ok(current_wan) = devices::detect_wan_iface() {
+                let mut inner = self.inner.write().unwrap();
+                let snap = inner.cfg.snapshot();
+                if current_wan != snap.wan_iface {
+                    info!(
+                        "engine: WAN interface changed from {} to {}, rebuilding",
+                        snap.wan_iface, current_wan
+                    );
 
-                // Teardown old tc + nft
-                inner.tc.teardown();
-                inner.nft.teardown();
+                    inner.tc.teardown();
+                    inner.nft.teardown();
 
-                // Update config with new WAN
-                inner.cfg.resolve_ifaces(&current_wan, "");
+                    // Re-detect LAN too since network topology may have changed
+                    let new_lan = if inner.cfg.is_lan_auto() {
+                        devices::detect_lan_iface(&current_wan)
+                            .unwrap_or_else(|_| snap.lan_iface.clone())
+                    } else {
+                        snap.lan_iface.clone()
+                    };
+                    inner.cfg.resolve_ifaces(&current_wan, &new_lan);
 
-                // Create new controllers
-                inner.tc = TCController::new(&current_wan, &snap.lan_iface, snap.min_rate_kbit);
-                inner.nft = NFTController::new(&current_wan);
+                    inner.tc = TCController::new(&current_wan, &new_lan, snap.min_rate_kbit);
+                    inner.nft = NFTController::new(&current_wan);
 
-                // Re-setup nft + tc
-                if let Err(e) = inner.nft.setup() {
-                    error!("engine: nft re-setup failed: {e}");
+                    if let Err(e) = inner.nft.setup() {
+                        error!("engine: nft re-setup failed: {e}");
+                    }
+                    let mut remaining = inner.curve.total_bytes - inner.month_used;
+                    if remaining < 0 {
+                        remaining = 0;
+                    }
+                    let rate_kbit = inner.curve.rate(remaining);
+                    if let Err(e) = inner.tc.setup_htb(rate_kbit) {
+                        error!("engine: tc re-setup failed: {e}");
+                    }
+
+                    let dev_info: Vec<(String, i32, i32, i32)> = inner
+                        .devices
+                        .values()
+                        .map(|d| (d.ip.clone(), d.mark, d.slot, d.bucket.burst_ceil_kbit()))
+                        .collect();
+
+                    for (ip, mark, slot, burst_ceil) in &dev_info {
+                        let _ = inner.nft.add_device(ip, *mark);
+                        let _ = inner.tc.add_device_class(*slot, snap.min_rate_kbit, *burst_ceil);
+                    }
+
+                    for dev in inner.devices.values_mut() {
+                        dev.prev_counter_up = 0;
+                        dev.prev_counter_down = 0;
+                        dev.last_mode = crate::model::DeviceMode::Burst;
+                        dev.last_burst_ceil = 0;
+                    }
+
+                    info!("engine: WAN switchover to {} complete", current_wan);
                 }
-                let mut remaining = inner.curve.total_bytes - inner.month_used;
-                if remaining < 0 {
-                    remaining = 0;
-                }
-                let rate_kbit = inner.curve.rate(remaining);
-                if let Err(e) = inner.tc.setup_htb(rate_kbit) {
-                    error!("engine: tc re-setup failed: {e}");
-                }
-
-                // Collect device info for re-adding rules
-                let dev_info: Vec<(String, i32, i32, i32)> = inner
-                    .devices
-                    .values()
-                    .map(|d| (d.ip.clone(), d.mark, d.slot, d.bucket.burst_ceil_kbit()))
-                    .collect();
-
-                // Re-add all device rules
-                for (ip, mark, slot, burst_ceil) in &dev_info {
-                    let _ = inner.nft.add_device(ip, *mark);
-                    let _ = inner.tc.add_device_class(*slot, snap.min_rate_kbit, *burst_ceil);
-                }
-
-                // Reset counters
-                for dev in inner.devices.values_mut() {
-                    dev.prev_counter_up = 0;
-                    dev.prev_counter_down = 0;
-                    dev.last_mode = crate::model::DeviceMode::Burst;
-                    dev.last_burst_ceil = 0;
-                }
-
-                info!("engine: WAN switchover to {} complete", current_wan);
+                drop(inner);
             }
-            drop(inner);
         }
 
         let mut inner = self.inner.write().unwrap();

@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Drawer, Form, InputNumber, Input, Button, Slider, Spin, Divider, Tooltip } from "antd";
+import { Drawer, Form, InputNumber, Input, Button, Slider, Spin, Divider, Tooltip, Select } from "antd";
 import { MinusOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ConfigValues } from "../types";
-import { getConfig, updateConfig } from "../api";
+import { getConfig, updateConfig, listInterfaces } from "../api";
 import { arcLengthCurvePoints } from "../curvePoints";
 
 interface Props {
@@ -172,6 +172,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
 
   const [resolvedWan, setResolvedWan] = useState<string | undefined>();
   const [resolvedLan, setResolvedLan] = useState<string | undefined>();
+  const [interfaces, setInterfaces] = useState<string[]>([]);
   const [maxMbit, setMaxMbit] = useState(50);
   const [minMbit, setMinMbit] = useState(1);
   const [curveShape, setCurveShape] = useState(0.4);
@@ -180,6 +181,9 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
+    listInterfaces()
+      .then((res) => setInterfaces(res.interfaces))
+      .catch(() => {});
     getConfig()
       .then((cfg) => {
         const maxM = cfg.max_rate_kbit / 1000;
@@ -429,7 +433,14 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 tooltip="Upstream-facing network interface. Set to 'auto' to detect from the default route."
                 extra={resolvedWan ? `Using: ${resolvedWan}` : undefined}
               >
-                <Input placeholder="auto" />
+                <Select>
+                  <Select.Option value="auto">auto</Select.Option>
+                  {interfaces.map((iface) => (
+                    <Select.Option key={iface} value={iface}>
+                      {iface}
+                    </Select.Option>
+                  ))}
+                </Select>
               </Form.Item>
               <Form.Item
                 label="LAN Interface"
@@ -437,7 +448,14 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 tooltip="LAN bridge interface where download shaping is applied. Set to 'auto' to detect."
                 extra={resolvedLan ? `Using: ${resolvedLan}` : undefined}
               >
-                <Input placeholder="auto" />
+                <Select>
+                  <Select.Option value="auto">auto</Select.Option>
+                  {interfaces.map((iface) => (
+                    <Select.Option key={iface} value={iface}>
+                      {iface}
+                    </Select.Option>
+                  ))}
+                </Select>
               </Form.Item>
               <Form.Item
                 label="Dish Address"

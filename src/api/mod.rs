@@ -15,6 +15,7 @@ pub fn router(engine: Engine) -> Router {
         .route("/api/v1/quota/adjust", post(handlers::handle_quota_adjust))
         .route("/api/v1/quota/reset", post(handlers::handle_quota_reset))
         .route("/api/v1/history", get(handlers::handle_history))
+        .route("/api/v1/interfaces", get(handlers::handle_list_interfaces))
         .route(
             "/api/v1/device/{mac}/turbo",
             post(handlers::handle_device_turbo),
