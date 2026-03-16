@@ -23,6 +23,14 @@ impl TCController {
         }
     }
 
+    pub fn wan_iface(&self) -> &str {
+        &self.wan_iface
+    }
+
+    pub fn lan_iface(&self) -> &str {
+        &self.lan_iface
+    }
+
     /// Initialize the HTB qdisc trees on WAN and LAN interfaces.
     pub fn setup_htb(&self, root_rate_kbit: i32) -> Result<(), String> {
         self.setup_wan(root_rate_kbit)?;
