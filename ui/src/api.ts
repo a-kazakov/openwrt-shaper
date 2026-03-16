@@ -68,7 +68,18 @@ export function enableTurbo(
   });
 }
 
-export function listInterfaces(): Promise<{ interfaces: string[] }> {
+export interface InterfaceInfo {
+  name: string;
+  kind: string;
+  state: string;
+  ip: string | null;
+  speed_mbps: number | null;
+  rx_bytes: number;
+  tx_bytes: number;
+  is_default_route: boolean;
+}
+
+export function listInterfaces(): Promise<InterfaceInfo[]> {
   return request("/api/v1/interfaces");
 }
 

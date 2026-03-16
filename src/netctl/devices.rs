@@ -49,18 +49,107 @@ pub fn detect_lan_iface(wan_iface: &str) -> Result<String, String> {
     Err("no LAN interface found".to_string())
 }
 
-/// List all network interfaces from /sys/class/net, excluding lo.
-pub fn list_interfaces() -> Vec<String> {
+/// Metadata for a network interface.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct InterfaceInfo {
+    pub name: String,
+    pub kind: &'static str,
+    pub state: String,
+    pub ip: Option<String>,
+    pub speed_mbps: Option<i32>,
+    pub rx_bytes: i64,
+    pub tx_bytes: i64,
+    pub is_default_route: bool,
+}
+
+fn read_sysfs(iface: &str, file: &str) -> Option<String> {
+    std::fs::read_to_string(format!("/sys/class/net/{iface}/{file}"))
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+fn detect_kind(name: &str) -> &'static str {
+    let base = format!("/sys/class/net/{name}");
+    if std::path::Path::new(&format!("{base}/bridge")).exists() {
+        "bridge"
+    } else if std::path::Path::new(&format!("{base}/wireless")).exists()
+        || name.starts_with("wlan")
+        || name.starts_with("apcli")
+        || name.starts_with("ra")
+    {
+        "wireless"
+    } else if name.starts_with("docker")
+        || name.starts_with("veth")
+        || name.starts_with("br-")
+        || name.starts_with("ifb")
+    {
+        "virtual"
+    } else {
+        "ethernet"
+    }
+}
+
+/// List all network interfaces with metadata.
+pub fn list_interfaces() -> Vec<InterfaceInfo> {
     let entries = match std::fs::read_dir("/sys/class/net") {
         Ok(e) => e,
         Err(_) => return vec![],
     };
-    let mut ifaces: Vec<String> = entries
+
+    // Get default route interface
+    let default_wan = detect_wan_iface().ok().unwrap_or_default();
+
+    // Get IP addresses via `ip -o -4 addr`
+    let ip_map: HashMap<String, String> = run_cmd("ip", &["-o", "-4", "addr", "show"])
+        .ok()
+        .map(|output| {
+            let mut map = HashMap::new();
+            for line in output.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let iface = parts[1].to_string();
+                    if let Some(addr) = parts.get(3) {
+                        map.entry(iface).or_insert_with(|| addr.to_string());
+                    }
+                }
+            }
+            map
+        })
+        .unwrap_or_default();
+
+    let mut ifaces: Vec<InterfaceInfo> = entries
         .flatten()
-        .map(|e| e.file_name().to_string_lossy().to_string())
-        .filter(|n| n != "lo")
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name == "lo" {
+                return None;
+            }
+
+            let state = read_sysfs(&name, "operstate").unwrap_or_else(|| "unknown".into());
+            let speed_mbps = read_sysfs(&name, "speed")
+                .and_then(|s| s.parse::<i32>().ok())
+                .filter(|&s| s > 0 && s < 100_000);
+            let rx_bytes = read_sysfs(&name, "statistics/rx_bytes")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let tx_bytes = read_sysfs(&name, "statistics/tx_bytes")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+
+            Some(InterfaceInfo {
+                kind: detect_kind(&name),
+                state,
+                ip: ip_map.get(&name).cloned(),
+                speed_mbps,
+                rx_bytes,
+                tx_bytes,
+                is_default_route: name == default_wan,
+                name,
+            })
+        })
         .collect();
-    ifaces.sort();
+
+    ifaces.sort_by(|a, b| a.name.cmp(&b.name));
     ifaces
 }
 
