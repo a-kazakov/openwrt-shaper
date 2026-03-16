@@ -2,8 +2,39 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Drawer, Form, InputNumber, Input, Button, Slider, Spin, Divider, Tooltip, Select } from "antd";
 import { MinusOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ConfigValues } from "../types";
-import { getConfig, updateConfig, listInterfaces } from "../api";
+import { getConfig, updateConfig, listInterfaces, type InterfaceInfo } from "../api";
 import { arcLengthCurvePoints } from "../curvePoints";
+import { formatBytesRound } from "../utils";
+
+function ifaceLabel(iface: InterfaceInfo): string {
+  const parts: string[] = [iface.kind];
+  if (iface.state === "up") {
+    if (iface.ip) parts.push(iface.ip.split("/")[0]);
+    if (iface.speed_mbps) parts.push(`${iface.speed_mbps} Mbps`);
+    const total = iface.rx_bytes + iface.tx_bytes;
+    if (total > 0) parts.push(`▼${formatBytesRound(iface.rx_bytes)} ▲${formatBytesRound(iface.tx_bytes)}`);
+  } else {
+    parts.push("down");
+  }
+  if (iface.is_default_route) parts.push("default route");
+  return parts.join(" · ");
+}
+
+function ifaceOptions(interfaces: InterfaceInfo[]) {
+  return (
+    <>
+      <Select.Option value="auto">auto (detect from default route)</Select.Option>
+      {interfaces.map((iface) => (
+        <Select.Option key={iface.name} value={iface.name}>
+          <span>{iface.name}</span>
+          <span style={{ color: "#666", fontSize: 12, marginLeft: 8 }}>
+            {ifaceLabel(iface)}
+          </span>
+        </Select.Option>
+      ))}
+    </>
+  );
+}
 
 interface Props {
   open: boolean;
@@ -172,7 +203,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
 
   const [resolvedWan, setResolvedWan] = useState<string | undefined>();
   const [resolvedLan, setResolvedLan] = useState<string | undefined>();
-  const [interfaces, setInterfaces] = useState<string[]>([]);
+  const [interfaces, setInterfaces] = useState<InterfaceInfo[]>([]);
   const [maxMbit, setMaxMbit] = useState(50);
   const [minMbit, setMinMbit] = useState(1);
   const [curveShape, setCurveShape] = useState(0.4);
@@ -182,7 +213,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
     if (!open) return;
     setLoading(true);
     listInterfaces()
-      .then((res) => setInterfaces(res.interfaces))
+      .then(setInterfaces)
       .catch(() => {});
     getConfig()
       .then((cfg) => {
@@ -433,14 +464,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 tooltip="Upstream-facing network interface. Set to 'auto' to detect from the default route."
                 extra={resolvedWan ? `Using: ${resolvedWan}` : undefined}
               >
-                <Select>
-                  <Select.Option value="auto">auto</Select.Option>
-                  {interfaces.map((iface) => (
-                    <Select.Option key={iface} value={iface}>
-                      {iface}
-                    </Select.Option>
-                  ))}
-                </Select>
+                <Select>{ifaceOptions(interfaces)}</Select>
               </Form.Item>
               <Form.Item
                 label="LAN Interface"
@@ -448,14 +472,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 tooltip="LAN bridge interface where download shaping is applied. Set to 'auto' to detect."
                 extra={resolvedLan ? `Using: ${resolvedLan}` : undefined}
               >
-                <Select>
-                  <Select.Option value="auto">auto</Select.Option>
-                  {interfaces.map((iface) => (
-                    <Select.Option key={iface} value={iface}>
-                      {iface}
-                    </Select.Option>
-                  ))}
-                </Select>
+                <Select>{ifaceOptions(interfaces)}</Select>
               </Form.Item>
               <Form.Item
                 label="Dish Address"

@@ -152,5 +152,8 @@ pub async fn handle_history() -> impl IntoResponse {
 
 pub async fn handle_list_interfaces() -> impl IntoResponse {
     let ifaces = crate::netctl::devices::list_interfaces();
-    Json(json!({"interfaces": ifaces}))
+    match serde_json::to_value(&ifaces) {
+        Ok(v) => Json(v),
+        Err(e) => Json(json!({"error": format!("serialize: {e}")})),
+    }
 }
