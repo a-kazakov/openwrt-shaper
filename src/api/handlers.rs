@@ -116,8 +116,8 @@ pub async fn handle_device_turbo(
     if duration_min <= 0 {
         duration_min = 15;
     }
-    if duration_min > 60 {
-        duration_min = 60;
+    if duration_min > 360 {
+        duration_min = 360;
     }
 
     let mac = mac.to_lowercase();
