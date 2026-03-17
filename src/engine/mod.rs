@@ -472,13 +472,18 @@ impl Engine {
             }
         }
 
-        // Track throughput
-        inner.last_tick_down = tick_down_total;
-        inner.last_tick_up = tick_up_total;
+        // Track throughput from WAN counters (includes router traffic)
+        if wan_initialized {
+            inner.last_tick_down = wan_download_delta;
+            inner.last_tick_up = wan_upload_delta;
+        } else {
+            inner.last_tick_down = tick_down_total;
+            inner.last_tick_up = tick_up_total;
+        }
 
         // Accumulate into 30-second buckets
-        inner.sample_accum_down += tick_down_total;
-        inner.sample_accum_up += tick_up_total;
+        inner.sample_accum_down += inner.last_tick_down;
+        inner.sample_accum_up += inner.last_tick_up;
         inner.sample_accum_ticks += 1;
         let ticks_per_sample = THROUGHPUT_WINDOW_SEC / snap.tick_interval_sec;
         if inner.sample_accum_ticks >= ticks_per_sample {
