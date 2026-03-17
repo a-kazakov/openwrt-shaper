@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { Progress, Button, Modal, InputNumber, Popconfirm } from "antd";
 import { ToolOutlined, SyncOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
-import type { QuotaState } from "../types";
+import type { QuotaState, DishStatus } from "../types";
 import { formatBytes } from "../utils";
 import { syncUsage, adjustQuota, resetCycle } from "../api";
 
 interface Props {
   quota: QuotaState;
+  dish?: DishStatus;
   onMessage: (text: string, type: "success" | "error" | "info") => void;
 }
 
-export default function QuotaBar({ quota, onMessage }: Props) {
+export default function QuotaBar({ quota, dish, onMessage }: Props) {
   const pct = Math.max(0, Math.min(100, quota.pct));
   const [modalOpen, setModalOpen] = useState(false);
   const [syncGb, setSyncGb] = useState<number | null>(null);
@@ -18,6 +19,11 @@ export default function QuotaBar({ quota, onMessage }: Props) {
   const [syncLoading, setSyncLoading] = useState(false);
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
+
+  // Pre-fill sync value from dish data when modal opens
+  const dishUsageGb = dish?.reachable
+    ? Math.round(((dish.usage_down + dish.usage_up) / 1000000000) * 100) / 100
+    : null;
 
   let strokeColor: string;
   if (quota.pct >= 90) {
@@ -56,7 +62,7 @@ export default function QuotaBar({ quota, onMessage }: Props) {
     }
     setAdjustLoading(true);
     try {
-      const deltaBytes = Math.round(adjustGb * 1073741824);
+      const deltaBytes = Math.round(adjustGb * 1000000000);
       await adjustQuota(deltaBytes);
       onMessage(
         `Adjusted by ${adjustGb > 0 ? "+" : ""}${adjustGb.toFixed(2)} GB`,
@@ -106,7 +112,10 @@ export default function QuotaBar({ quota, onMessage }: Props) {
               Quota Usage
             </span>
             <button
-              onClick={() => setModalOpen(true)}
+              onClick={() => {
+                if (dishUsageGb != null && dishUsageGb > 0) setSyncGb(dishUsageGb);
+                setModalOpen(true);
+              }}
               style={{
                 background: "none",
                 border: "1px solid #333",
@@ -160,7 +169,9 @@ export default function QuotaBar({ quota, onMessage }: Props) {
               Sync with Starlink
             </div>
             <div style={{ color: "#555", fontSize: 12, marginBottom: 8 }}>
-              Enter usage from the Starlink app to reconcile.
+              {dishUsageGb != null && dishUsageGb > 0
+                ? `Pre-filled from dish (${dishUsageGb} GB). Edit if needed.`
+                : "Enter usage from the Starlink app to reconcile."}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <InputNumber

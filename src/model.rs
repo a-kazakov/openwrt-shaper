@@ -129,6 +129,14 @@ pub struct DishStatus {
     pub usage_up: i64,
 }
 
+/// A persistent warning displayed in the UI until resolved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Warning {
+    pub id: String,
+    pub level: String,
+    pub message: String,
+}
+
 /// Full state snapshot pushed over WebSocket.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateSnapshot {
@@ -139,6 +147,8 @@ pub struct StateSnapshot {
     pub throughput: ThroughputState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dish: Option<DishStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<Warning>,
 }
 
 /// Per-device data in the state snapshot (sent over WebSocket).
@@ -249,6 +259,7 @@ mod tests {
                 samples_1h: vec![],
             },
             dish: None,
+            warnings: vec![],
         };
 
         let json = serde_json::to_value(&snap).unwrap();
@@ -345,6 +356,40 @@ mod tests {
     }
 
     #[test]
+    fn warnings_omitted_when_empty() {
+        let snap = StateSnapshot {
+            ts: 0,
+            quota: QuotaState {
+                used: 0, remaining: 0, total: 0,
+                used_upload: 0, used_download: 0,
+                billing_month: String::new(), pct: 0,
+            },
+            curve: CurveState { rate_kbit: 0, shape: 0.0, down_up_ratio: 0.0 },
+            devices: vec![],
+            throughput: ThroughputState {
+                current_down_bps: 0, current_up_bps: 0, samples_1h: vec![],
+            },
+            dish: None,
+            warnings: vec![],
+        };
+        let json = serde_json::to_string(&snap).unwrap();
+        assert!(!json.contains("\"warnings\""), "empty warnings should be omitted");
+
+        // With warnings present
+        let snap2 = StateSnapshot {
+            warnings: vec![Warning {
+                id: "test".to_string(),
+                level: "warning".to_string(),
+                message: "test warning".to_string(),
+            }],
+            ..snap
+        };
+        let json2 = serde_json::to_string(&snap2).unwrap();
+        assert!(json2.contains("\"warnings\""));
+        assert!(json2.contains("\"test warning\""));
+    }
+
+    #[test]
     fn dish_status_omitted_when_none() {
         let snap = StateSnapshot {
             ts: 0,
@@ -369,6 +414,7 @@ mod tests {
                 samples_1h: vec![],
             },
             dish: None,
+            warnings: vec![],
         };
 
         let json = serde_json::to_string(&snap).unwrap();

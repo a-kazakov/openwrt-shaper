@@ -21,13 +21,14 @@ fn iface_exists(name: &str) -> bool {
 
 /// Resolve an interface name: if explicit and exists, use it; if explicit but missing,
 /// warn and fall back to auto-detection; if "auto", auto-detect.
-fn resolve_interface<F>(configured: &str, role: &str, detect: F) -> String
+/// Returns (resolved_name, fallback_warning_message_or_none).
+fn resolve_interface<F>(configured: &str, role: &str, detect: F) -> (String, Option<String>)
 where
     F: FnOnce() -> Result<String, String>,
 {
     if configured != "auto" && iface_exists(configured) {
         info!("{role} interface: {configured} (configured)");
-        return configured.to_string();
+        return (configured.to_string(), None);
     }
 
     if configured != "auto" {
@@ -39,7 +40,14 @@ where
     match detect() {
         Ok(iface) => {
             info!("{role} interface: {iface} (auto-detected)");
-            iface
+            let warning = if configured != "auto" {
+                Some(format!(
+                    "{role} interface '{configured}' does not exist, using auto-detected '{iface}'"
+                ))
+            } else {
+                None
+            };
+            (iface, warning)
         }
         Err(e) => {
             if configured != "auto" {
@@ -49,7 +57,10 @@ where
                 warn!(
                     "{role} auto-detection failed ({e}), using configured {configured} (may not exist yet)"
                 );
-                configured.to_string()
+                let warning = format!(
+                    "{role} interface '{configured}' does not exist and auto-detection failed"
+                );
+                (configured.to_string(), Some(warning))
             } else {
                 error!("failed to detect {role} interface: {e}");
                 std::process::exit(1);
@@ -109,12 +120,12 @@ async fn main() {
     // If an explicit interface is configured but doesn't exist (e.g. GL-Inet "sta"
     // interface only present when repeater is active), fall back to auto-detection
     // instead of crashing.
-    let wan = resolve_interface(
+    let (wan, wan_warning) = resolve_interface(
         &snap.wan_iface,
         "WAN",
         netctl::devices::detect_wan_iface,
     );
-    let lan = resolve_interface(
+    let (lan, lan_warning) = resolve_interface(
         &snap.lan_iface,
         "LAN",
         || netctl::devices::detect_lan_iface(&wan),
@@ -146,6 +157,14 @@ async fn main() {
 
     // Create engine
     let engine = engine::Engine::new(cfg.clone(), store);
+
+    // Set interface fallback warnings from startup
+    if let Some(msg) = wan_warning {
+        engine.add_interface_warning(msg);
+    }
+    if let Some(msg) = lan_warning {
+        engine.add_interface_warning(msg);
+    }
 
     // Setup network (nftables + tc)
     if let Err(e) = engine.setup() {
