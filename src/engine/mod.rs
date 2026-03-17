@@ -5,7 +5,7 @@ pub mod curve;
 use crate::config::Config;
 use crate::model::{
     CurveState, DeviceSnapshot, DishStatus, QuotaState, StateSnapshot, ThroughputSample,
-    ThroughputState, TurboState,
+    ThroughputState, TurboState, Warning,
 };
 use crate::netctl::counters;
 use crate::netctl::devices::{self, StaticDeviceEntry};
@@ -83,6 +83,11 @@ struct EngineInner {
 
     // Dish status (set externally)
     dish_status: Option<DishStatus>,
+
+    // Persistent warnings
+    interface_warnings: Vec<Warning>,
+    /// Absolute gap in bytes between Starlink-reported and router-tracked usage at last sync
+    last_sync_gap_bytes: i64,
 }
 
 /// Thread-safe engine handle.
@@ -135,7 +140,7 @@ impl Engine {
         }
 
         // Update curve total in case config changed
-        curve.total_bytes = snap.monthly_quota_gb as i64 * 1_073_741_824;
+        curve.total_bytes = snap.monthly_quota_gb as i64 * 1_000_000_000;
 
         let (snapshot_tx, snapshot_rx) = watch::channel(None);
 
@@ -161,6 +166,8 @@ impl Engine {
                 sample_accum_ticks: 0,
                 last_snapshot: None,
                 dish_status: None,
+                interface_warnings: Vec::new(),
+                last_sync_gap_bytes: 0,
             })),
             snapshot_tx,
             snapshot_rx,
@@ -261,7 +268,7 @@ impl Engine {
         inner.curve.max_rate_kbit = snap.max_rate_kbit;
         inner.curve.min_rate_kbit = snap.min_rate_kbit;
         inner.curve.shape = snap.curve_shape;
-        inner.curve.total_bytes = snap.monthly_quota_gb as i64 * 1_073_741_824;
+        inner.curve.total_bytes = snap.monthly_quota_gb as i64 * 1_000_000_000;
 
         // Compute curve rate
         let mut remaining = inner.curve.total_bytes - inner.month_used;
@@ -482,23 +489,46 @@ impl Engine {
 
         // Determine desired WAN: re-detect if "auto" or if configured interface
         // doesn't exist (may have disappeared, e.g. wifi repeater disconnected)
-        let desired_wan = if inner.cfg.is_wan_auto()
-            || !iface_exists(&snap.wan_iface)
-        {
+        let wan_missing = !inner.cfg.is_wan_auto() && !iface_exists(&snap.wan_iface);
+        let desired_wan = if inner.cfg.is_wan_auto() || wan_missing {
             devices::detect_wan_iface().unwrap_or_else(|_| snap.wan_iface.clone())
         } else {
             snap.wan_iface.clone()
         };
 
         // Determine desired LAN: same logic
-        let desired_lan = if inner.cfg.is_lan_auto()
-            || !iface_exists(&snap.lan_iface)
-        {
+        let lan_missing = !inner.cfg.is_lan_auto() && !iface_exists(&snap.lan_iface);
+        let desired_lan = if inner.cfg.is_lan_auto() || lan_missing {
             devices::detect_lan_iface(&desired_wan)
                 .unwrap_or_else(|_| snap.lan_iface.clone())
         } else {
             snap.lan_iface.clone()
         };
+
+        // Update interface warnings
+        inner
+            .interface_warnings
+            .retain(|w| !w.id.starts_with("iface_fallback"));
+        if wan_missing {
+            inner.interface_warnings.push(Warning {
+                id: "iface_fallback_wan".to_string(),
+                level: "warning".to_string(),
+                message: format!(
+                    "WAN interface '{}' does not exist, using auto-detected '{}'",
+                    snap.wan_iface, desired_wan
+                ),
+            });
+        }
+        if lan_missing {
+            inner.interface_warnings.push(Warning {
+                id: "iface_fallback_lan".to_string(),
+                level: "warning".to_string(),
+                message: format!(
+                    "LAN interface '{}' does not exist, using auto-detected '{}'",
+                    snap.lan_iface, desired_lan
+                ),
+            });
+        }
 
         let current_wan = inner.tc.wan_iface().to_string();
         let current_lan = inner.tc.lan_iface().to_string();
@@ -833,6 +863,54 @@ impl Engine {
             devices.push(ds);
         }
 
+        // Build warnings list
+        let mut warnings: Vec<Warning> = inner.interface_warnings.clone();
+
+        // Dish unreachable
+        if let Some(ref dish) = inner.dish_status {
+            if !dish.reachable {
+                warnings.push(Warning {
+                    id: "dish_unreachable".to_string(),
+                    level: "warning".to_string(),
+                    message: "Starlink dish is unreachable. Quota tracking may be inaccurate if internet is not via Starlink.".to_string(),
+                });
+            }
+            // Dish-reported usage mismatch
+            let dish_total = dish.usage_down + dish.usage_up;
+            if dish_total > 0 {
+                let gap = (dish_total - inner.month_used).unsigned_abs() as i64;
+                let threshold = snap.usage_mismatch_threshold_mb as i64 * 1_000_000;
+                if threshold > 0 && gap > threshold {
+                    let gap_mb = gap / 1_000_000;
+                    warnings.push(Warning {
+                        id: "usage_mismatch".to_string(),
+                        level: "warning".to_string(),
+                        message: format!(
+                            "Dish-reported usage differs from router by {gap_mb} MB. Use Sync to reconcile."
+                        ),
+                    });
+                }
+            }
+        }
+
+        // Sync-based mismatch (from last /sync call)
+        if inner.last_sync_gap_bytes > 0 {
+            let threshold = snap.usage_mismatch_threshold_mb as i64 * 1_000_000;
+            if threshold > 0 && inner.last_sync_gap_bytes > threshold {
+                // Only add if not already covered by dish-reported mismatch
+                if !warnings.iter().any(|w| w.id == "usage_mismatch") {
+                    let gap_mb = inner.last_sync_gap_bytes / 1_000_000;
+                    warnings.push(Warning {
+                        id: "usage_mismatch".to_string(),
+                        level: "warning".to_string(),
+                        message: format!(
+                            "Last sync showed {gap_mb} MB gap between Starlink and router usage. Consider syncing again."
+                        ),
+                    });
+                }
+            }
+        }
+
         let curve_rate = inner.curve.rate(remaining);
         StateSnapshot {
             ts: Utc::now().timestamp(),
@@ -857,6 +935,7 @@ impl Engine {
                 samples_1h: inner.throughput_samples.iter().cloned().collect(),
             },
             dish: inner.dish_status.clone(),
+            warnings,
         }
     }
 
@@ -958,7 +1037,7 @@ impl Engine {
             .get_mut(mac)
             .ok_or_else(|| format!("device {mac} not found"))?;
 
-        dev.bucket.set_tokens(tokens_mb * 1_048_576);
+        dev.bucket.set_tokens(tokens_mb * 1_000_000);
         Ok(())
     }
 
@@ -979,6 +1058,35 @@ impl Engine {
     pub fn set_dish_status(&self, status: Option<DishStatus>) {
         let mut inner = self.inner.write().unwrap();
         inner.dish_status = status;
+    }
+
+    /// Add an interface fallback warning (called at startup / interface change).
+    pub fn add_interface_warning(&self, message: String) {
+        let mut inner = self.inner.write().unwrap();
+        // Replace existing interface warnings
+        inner
+            .interface_warnings
+            .retain(|w| !w.id.starts_with("iface_fallback"));
+        let idx = inner.interface_warnings.len();
+        inner.interface_warnings.push(Warning {
+            id: format!("iface_fallback_{idx}"),
+            level: "warning".to_string(),
+            message,
+        });
+    }
+
+    /// Clear interface warnings (called when interfaces are successfully resolved).
+    pub fn clear_interface_warnings(&self) {
+        let mut inner = self.inner.write().unwrap();
+        inner
+            .interface_warnings
+            .retain(|w| !w.id.starts_with("iface_fallback"));
+    }
+
+    /// Record the gap between Starlink and router usage from a sync call.
+    pub fn set_sync_gap(&self, gap_bytes: i64) {
+        let mut inner = self.inner.write().unwrap();
+        inner.last_sync_gap_bytes = gap_bytes;
     }
 }
 

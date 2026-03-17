@@ -9,6 +9,7 @@ import CurveChart from "./components/CurveChart";
 import ThroughputChart from "./components/ThroughputChart";
 import DeviceTable from "./components/DeviceTable";
 import ConfigDrawer from "./components/ConfigDrawer";
+import WarningBanner from "./components/WarningBanner";
 
 const { Content } = Layout;
 
@@ -117,9 +118,10 @@ export default function App() {
 
         {state && (
           <>
+            <WarningBanner warnings={state.warnings ?? []} />
             <Row gutter={[10, 10]}>
               <Col xs={24} sm={16}>
-                <QuotaBar quota={state.quota} onMessage={showMessage} />
+                <QuotaBar quota={state.quota} dish={state.dish} onMessage={showMessage} />
               </Col>
               <Col xs={24} sm={8}>
                 <ThroughputChart throughput={state.throughput} />
