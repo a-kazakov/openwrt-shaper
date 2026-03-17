@@ -194,14 +194,14 @@ async fn main() {
         let mut shutdown = poller_shutdown;
 
         dish_client_ref.ensure_route();
-        dish_client_ref.poll();
+        dish_client_ref.poll().await;
         engine_ref.set_dish_status(dish_client_ref.status());
 
         loop {
             tokio::select! {
                 _ = shutdown.changed() => break,
                 _ = timer.tick() => {
-                    dish_client_ref.poll();
+                    dish_client_ref.poll().await;
                     engine_ref.set_dish_status(dish_client_ref.status());
                 }
             }

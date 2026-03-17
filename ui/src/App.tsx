@@ -28,14 +28,13 @@ function DishTooltip({ dish }: { dish: DishStatus }) {
   );
   return (
     <div style={{ minWidth: 180 }}>
-      {row("Status", dish.reachable ? "Reachable" : "Unreachable")}
-      {dish.connected && row("Connected", "Yes")}
+      {row("Status", dish.connected ? "Connected" : dish.reachable ? "Reachable" : "Unreachable")}
       {dish.uptime > 0 && row("Uptime", `${Math.floor(dish.uptime / 3600)}h ${Math.floor((dish.uptime % 3600) / 60)}m`)}
-      {dish.pop_ping_latency_ms > 0 && row("Latency", `${dish.pop_ping_latency_ms.toFixed(0)} ms`)}
-      {dish.signal_quality > 0 && row("Signal", `${(dish.signal_quality * 100).toFixed(0)}%`)}
-      {dish.obstructed && row("Obstructed", `${(dish.fraction_obstructed * 100).toFixed(1)}%`)}
+      {dish.pop_ping_latency_ms > 0 && row("Latency", `${dish.pop_ping_latency_ms.toFixed(1)} ms`)}
+      {dish.signal_quality > 0 && row("SNR", dish.signal_quality.toFixed(1))}
       {dish.downlink_bps > 0 && row("Downlink", `${(dish.downlink_bps / 1000000).toFixed(1)} Mbps`)}
       {dish.uplink_bps > 0 && row("Uplink", `${(dish.uplink_bps / 1000000).toFixed(1)} Mbps`)}
+      {dish.obstructed && row("Obstructed", `${(dish.fraction_obstructed * 100).toFixed(1)}%`)}
       {dish.software_version && row("Software", dish.software_version)}
       {!dish.reachable && (
         <div style={{ color: "#fbbf24", fontSize: 11, marginTop: 6 }}>
