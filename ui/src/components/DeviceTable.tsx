@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Button, Card, Spin } from "antd";
+import { Button, Card, Dropdown, Spin } from "antd";
+import type { MenuProps } from "antd";
 import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
 import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound, formatLimitPair, modeLabel, modeColor } from "../utils";
@@ -99,6 +100,19 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
   );
 }
 
+const TURBO_DURATIONS: { key: string; label: string; minutes: number }[] = [
+  { key: "15", label: "15 min", minutes: 15 },
+  { key: "30", label: "30 min", minutes: 30 },
+  { key: "45", label: "45 min", minutes: 45 },
+  { key: "60", label: "1 hour", minutes: 60 },
+  { key: "90", label: "1h 30m", minutes: 90 },
+  { key: "120", label: "2 hours", minutes: 120 },
+  { key: "180", label: "3 hours", minutes: 180 },
+  { key: "240", label: "4 hours", minutes: 240 },
+  { key: "300", label: "5 hours", minutes: 300 },
+  { key: "360", label: "6 hours", minutes: 360 },
+];
+
 function TurboButton({
   device,
   onMessage,
@@ -116,18 +130,28 @@ function TurboButton({
     }
   }, [device.turbo]);
 
-  const handleToggle = async () => {
-    const wantTurbo = !device.turbo;
-    setPending(wantTurbo);
-    pendingRef.current = wantTurbo;
+  const handleEnable = async (minutes: number) => {
+    setPending(true);
+    pendingRef.current = true;
     try {
-      if (device.turbo) {
-        await cancelTurbo(device.mac);
-        onMessage(`Turbo cancelled for ${device.hostname || device.mac}`, "info");
-      } else {
-        await enableTurbo(device.mac, 15);
-        onMessage(`Turbo enabled for ${device.hostname || device.mac}`, "success");
-      }
+      await enableTurbo(device.mac, minutes);
+      onMessage(`Turbo enabled for ${device.hostname || device.mac}`, "success");
+    } catch (e) {
+      setPending(null);
+      pendingRef.current = null;
+      onMessage(
+        `Turbo failed: ${e instanceof Error ? e.message : String(e)}`,
+        "error",
+      );
+    }
+  };
+
+  const handleCancel = async () => {
+    setPending(false);
+    pendingRef.current = false;
+    try {
+      await cancelTurbo(device.mac);
+      onMessage(`Turbo cancelled for ${device.hostname || device.mac}`, "info");
     } catch (e) {
       setPending(null);
       pendingRef.current = null;
@@ -151,7 +175,7 @@ function TurboButton({
         type="primary"
         size="small"
         danger
-        onClick={handleToggle}
+        onClick={handleCancel}
         disabled={isLoading}
         icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
         style={{ height: 26, minWidth: 0, padding: "0 8px", fontSize: 11 }}
@@ -161,16 +185,32 @@ function TurboButton({
     );
   }
 
+  const menuItems: MenuProps["items"] = TURBO_DURATIONS.map((d) => ({
+    key: d.key,
+    label: d.label,
+  }));
+
   return (
-    <Button
-      size="small"
-      onClick={handleToggle}
+    <Dropdown
+      menu={{
+        items: menuItems,
+        onClick: ({ key }) => {
+          const dur = TURBO_DURATIONS.find((d) => d.key === key);
+          if (dur) handleEnable(dur.minutes);
+        },
+      }}
+      trigger={["click"]}
       disabled={isLoading}
-      icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
-      style={{ height: 26, minWidth: 0, padding: "0 8px", fontSize: 11 }}
     >
-      Turbo
-    </Button>
+      <Button
+        size="small"
+        disabled={isLoading}
+        icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
+        style={{ height: 26, minWidth: 0, padding: "0 8px", fontSize: 11 }}
+      >
+        Turbo
+      </Button>
+    </Dropdown>
   );
 }
 
