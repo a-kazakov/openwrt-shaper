@@ -17,6 +17,8 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 mime_guess = "2"
 futures-util = "0.3"
+starlink = "1.0.0"
+tonic = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
