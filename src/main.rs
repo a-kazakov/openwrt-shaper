@@ -195,6 +195,7 @@ async fn main() {
 
         dish_client_ref.ensure_route();
         dish_client_ref.poll();
+        engine_ref.set_dish_status(dish_client_ref.status());
 
         loop {
             tokio::select! {

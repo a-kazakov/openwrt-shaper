@@ -3,7 +3,7 @@ use crate::netctl::run_cmd;
 use std::net::TcpStream;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tracing::warn;
+use tracing::{info, warn};
 
 /// Starlink dish client — probes TCP connectivity.
 pub struct DishClient {
@@ -43,7 +43,7 @@ impl DishClient {
         }
     }
 
-    /// Test TCP connectivity to the dish.
+    /// Test TCP connectivity to the dish. Logs on state transitions.
     pub fn poll(&self) -> Option<DishStatus> {
         let addr = if self.addr.contains(':') {
             self.addr.clone()
@@ -51,11 +51,21 @@ impl DishClient {
             format!("{}:9200", self.addr)
         };
 
+        let was_reachable = self
+            .status
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|s| s.reachable);
+
         match TcpStream::connect_timeout(
             &addr.parse().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
             Duration::from_secs(3),
         ) {
             Ok(_) => {
+                if was_reachable != Some(true) {
+                    info!("dish: reachable at {addr}");
+                }
                 let status = DishStatus {
                     reachable: true,
                     connected: true,
@@ -73,7 +83,10 @@ impl DishClient {
                 *self.status.write().unwrap() = Some(status.clone());
                 Some(status)
             }
-            Err(_) => {
+            Err(e) => {
+                if was_reachable != Some(false) {
+                    warn!("dish: unreachable at {addr}: {e}");
+                }
                 let status = DishStatus {
                     reachable: false,
                     connected: false,
