@@ -1,3 +1,9 @@
+export interface Warning {
+  id: string;
+  level: string;
+  message: string;
+}
+
 /** Matches Rust model.rs StateSnapshot */
 export interface StateSnapshot {
   ts: number;
@@ -6,6 +12,7 @@ export interface StateSnapshot {
   devices: DeviceSnapshot[];
   throughput: ThroughputState;
   dish?: DishStatus;
+  warnings?: Warning[];
 }
 
 export interface QuotaState {
@@ -99,6 +106,7 @@ export interface ConfigValues {
   device_scan_interval_sec: number;
   overage_cost_per_gb: number;
   plan_cost_monthly: number;
+  usage_mismatch_threshold_mb: number;
   resolved_wan?: string;
   resolved_lan?: string;
 }

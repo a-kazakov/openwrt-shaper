@@ -36,7 +36,7 @@ mod tests {
             max_rate_kbit: 50000,
             min_rate_kbit: 1000,
             shape: 0.40,
-            total_bytes: 20 * 1_073_741_824, // 20 GB
+            total_bytes: 20 * 1_000_000_000, // 20 GB
         }
     }
 
@@ -45,13 +45,13 @@ mod tests {
         let c = test_curve();
 
         let tests = [
-            ("100% remaining", 20i64 * 1_073_741_824, 49000, 50001),
+            ("100% remaining", 20i64 * 1_000_000_000, 49000, 50001),
             ("0% remaining", 0, 1000, 1001),
-            ("50% remaining", 10 * 1_073_741_824, 30000, 42000),
-            ("10% remaining", 2 * 1_073_741_824, 15000, 25000),
-            ("1% remaining", 214_748_364, 5000, 12000),
-            ("negative remaining", -1_073_741_824, 1000, 1001),
-            ("over 100% remaining", 25 * 1_073_741_824, 49000, 50001),
+            ("50% remaining", 10 * 1_000_000_000, 30000, 42000),
+            ("10% remaining", 2 * 1_000_000_000, 15000, 25000),
+            ("1% remaining", 200_000_000, 5000, 12000),
+            ("negative remaining", -1_000_000_000, 1000, 1001),
+            ("over 100% remaining", 25 * 1_000_000_000, 49000, 50001),
         ];
 
         for (name, remaining, want_min, want_max) in &tests {
@@ -82,7 +82,7 @@ mod tests {
 
     #[test]
     fn curve_shape_exponents() {
-        let total = 20i64 * 1_073_741_824;
+        let total = 20i64 * 1_000_000_000;
         let half = total / 2;
 
         // Lower shape = higher rate at 50% (more aggressive curve)

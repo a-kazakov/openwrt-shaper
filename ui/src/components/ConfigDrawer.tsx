@@ -277,7 +277,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
   // Estimate time to fully deplete quota at max usage (without turbo)
   const maxBps = (maxMbit * 1000 * 1000) / 8;
   const minBps = (minMbit * 1000 * 1000) / 8;
-  const quotaBytes = quotaGb * 1073741824;
+  const quotaBytes = quotaGb * 1000000000;
   let burnSeconds = 0;
   {
     const steps = 500; // Riemann sum steps; 500 gives ~0.2% error, fast enough for live preview
@@ -295,7 +295,7 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
         ? `${burnHours.toFixed(1)}h`
         : `${(burnHours / 24).toFixed(1)}d`;
 
-  const gbPerHrAtMin = (minBps * 3600) / 1073741824;
+  const gbPerHrAtMin = (minBps * 3600) / 1000000000;
 
   return (
     <Drawer
@@ -467,6 +467,17 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
                 tooltip="Fraction of the burst budget drained per tick to set the burst ceiling. Higher = faster bursts but shorter burst duration."
               >
                 <InputNumber min={0.01} max={0.5} step={0.01} style={{ width: "100%" }} />
+              </Form.Item>
+
+              <Divider orientation="left" style={{ color: "#666", fontSize: 12 }}>
+                Alerts
+              </Divider>
+              <Form.Item
+                label="Usage Mismatch Threshold (MB)"
+                name="usage_mismatch_threshold_mb"
+                tooltip="Show a warning when the gap between Starlink-reported and router-tracked usage exceeds this value. Set to 0 to disable."
+              >
+                <InputNumber min={0} max={10000} style={{ width: "100%" }} />
               </Form.Item>
 
               <Divider orientation="left" style={{ color: "#666", fontSize: 12 }}>

@@ -1,12 +1,13 @@
 import { colors } from "./theme";
 
+/** Format bytes using base-10 units (matching Starlink's convention). */
 export function formatBytes(b: number | null | undefined): string {
   if (b == null) return "--";
   const abs = Math.abs(b);
-  if (abs < 1024) return b + " B";
-  if (abs < 1048576) return (b / 1024).toFixed(1) + " KB";
-  if (abs < 1073741824) return (b / 1048576).toFixed(1) + " MB";
-  return (b / 1073741824).toFixed(2) + " GB";
+  if (abs < 1000) return b + " B";
+  if (abs < 1000000) return (b / 1000).toFixed(1) + " KB";
+  if (abs < 1000000000) return (b / 1000000).toFixed(1) + " MB";
+  return (b / 1000000000).toFixed(2) + " GB";
 }
 
 export function formatRate(bps: number | null | undefined): string {
@@ -25,17 +26,17 @@ export function formatRateKbit(kbit: number | null | undefined): string {
 }
 
 export function formatMB(bytes: number): string {
-  const mb = Math.round(bytes / 1048576);
+  const mb = Math.round(bytes / 1000000);
   return mb + " MB";
 }
 
-/** Bytes rounded to nearest unit, no decimals, starting at KB. */
+/** Bytes rounded to nearest unit, no decimals, starting at KB (base-10). */
 export function formatBytesRound(b: number | null | undefined): string {
   if (b == null) return "--";
   const abs = Math.abs(b);
-  if (abs < 1048576) return Math.round(b / 1024) + " KB";
-  if (abs < 1073741824) return Math.round(b / 1048576) + " MB";
-  return Math.round(b / 1073741824) + " GB";
+  if (abs < 1000000) return Math.round(b / 1000) + " KB";
+  if (abs < 1000000000) return Math.round(b / 1000000) + " MB";
+  return Math.round(b / 1000000000) + " GB";
 }
 
 /** Bits/sec rounded to nearest unit, no decimals, starting at Kbps. */
