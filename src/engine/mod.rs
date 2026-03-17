@@ -81,6 +81,10 @@ struct EngineInner {
     // Snapshot cache
     last_snapshot: Option<StateSnapshot>,
 
+    // WAN interface sysfs counters for quota tracking (includes router traffic)
+    prev_wan_rx: i64,
+    prev_wan_tx: i64,
+
     // Dish status (set externally)
     dish_status: Option<DishStatus>,
 
@@ -165,6 +169,8 @@ impl Engine {
                 sample_accum_up: 0,
                 sample_accum_ticks: 0,
                 last_snapshot: None,
+                prev_wan_rx: 0,
+                prev_wan_tx: 0,
                 dish_status: None,
                 interface_warnings: Vec::new(),
                 last_sync_gap_bytes: 0,
@@ -295,15 +301,34 @@ impl Engine {
             active_devices = 1; // prevent division-by-zero in fair-share calculation
         }
 
+        // Read WAN interface counters for quota tracking.
+        // WAN rx = download (from internet), tx = upload (to internet).
+        // This captures ALL traffic including router-originated (DNS, NTP,
+        // firmware updates) that per-device nft counters miss.
+        let wan_iface = inner.tc.wan_iface().to_string();
+        let wan_rx = read_iface_counter(&wan_iface, "rx_bytes");
+        let wan_tx = read_iface_counter(&wan_iface, "tx_bytes");
+
+        let mut wan_download_delta = wan_rx - inner.prev_wan_rx;
+        let mut wan_upload_delta = wan_tx - inner.prev_wan_tx;
+        // Negative delta means counter wrapped or interface was reset
+        if wan_download_delta < 0 {
+            wan_download_delta = 0;
+        }
+        if wan_upload_delta < 0 {
+            wan_upload_delta = 0;
+        }
+        // Skip the first tick (prev was 0 → delta would be the entire lifetime counter)
+        let wan_initialized = inner.prev_wan_rx > 0 || inner.prev_wan_tx > 0;
+        inner.prev_wan_rx = wan_rx;
+        inner.prev_wan_tx = wan_tx;
+
         let mut tick_down_total: i64 = 0;
         let mut tick_up_total: i64 = 0;
-        let mut quota_delta: i64 = 0;
-        let mut upload_delta: i64 = 0;
-        let mut download_delta: i64 = 0;
 
-        // Phase 1: Read counters and drain buckets
+        // Phase 1: Read per-device nft counters and drain buckets.
+        // Per-device counters are still used for bucket drain and device stats.
         for dev in inner.devices.values_mut() {
-            // Read counters
             if let Ok(ref counter_map) = counters_result {
                 if let Some(c) = counter_map.get(&dev.mark) {
                     let new_up = c.upload;
@@ -311,7 +336,6 @@ impl Engine {
 
                     dev.delta_up = new_up - dev.prev_counter_up;
                     // Negative delta means nft counters were reset (e.g., table recreated).
-                    // Discard to avoid crediting negative bytes to quota.
                     if dev.delta_up < 0 {
                         dev.delta_up = 0;
                     }
@@ -335,10 +359,6 @@ impl Engine {
             dev.session_down += dev.delta_down;
             dev.cycle_bytes += delta;
 
-            quota_delta += delta;
-            upload_delta += dev.delta_up;
-            download_delta += dev.delta_down;
-
             // Handle turbo expiration
             if dev.turbo.active {
                 if let Some(expires) = dev.turbo.expires_at {
@@ -353,9 +373,13 @@ impl Engine {
             }
         }
 
-        inner.month_used += quota_delta;
-        inner.used_upload += upload_delta;
-        inner.used_download += download_delta;
+        // Quota is tracked from WAN interface counters (includes router traffic).
+        // Per-device nft counters are only used for bucket drain and device stats.
+        if wan_initialized {
+            inner.month_used += wan_download_delta + wan_upload_delta;
+            inner.used_upload += wan_upload_delta;
+            inner.used_download += wan_download_delta;
+        }
 
         for dev in inner.devices.values_mut() {
             dev.bucket.update(
@@ -580,6 +604,10 @@ impl Engine {
             dev.last_mode = crate::model::DeviceMode::Burst;
             dev.last_burst_ceil = 0;
         }
+
+        // Reset WAN sysfs counters (new interface has different counters)
+        inner.prev_wan_rx = 0;
+        inner.prev_wan_tx = 0;
 
         info!(
             "engine: interface switchover complete (WAN: {}, LAN: {})",
@@ -1088,6 +1116,14 @@ impl Engine {
         let mut inner = self.inner.write().unwrap();
         inner.last_sync_gap_bytes = gap_bytes;
     }
+}
+
+/// Read a sysfs counter for a network interface. Returns 0 on failure.
+fn read_iface_counter(iface: &str, counter: &str) -> i64 {
+    std::fs::read_to_string(format!("/sys/class/net/{iface}/statistics/{counter}"))
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
 }
 
 /// Check if a network interface exists in sysfs.
