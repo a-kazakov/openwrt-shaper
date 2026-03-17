@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Layout, message, Row, Col } from "antd";
+import { Layout, message, Row, Col, Popover } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { useWebSocket } from "./useWebSocket";
 import { getConfig } from "./api";
-import type { ConfigValues } from "./types";
+import type { ConfigValues, StateSnapshot, DishStatus } from "./types";
 import QuotaBar from "./components/QuotaBar";
 import CurveChart from "./components/CurveChart";
 import ThroughputChart from "./components/ThroughputChart";
@@ -17,6 +17,71 @@ function showMessage(text: string, type: "success" | "error" | "info") {
   if (type === "success") message.success(text);
   else if (type === "error") message.error(text);
   else message.info(text);
+}
+
+function DishTooltip({ dish }: { dish: DishStatus }) {
+  const row = (label: string, value: string) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 16, fontSize: 12 }}>
+      <span style={{ color: "#999" }}>{label}</span>
+      <span style={{ color: "#fff" }}>{value}</span>
+    </div>
+  );
+  return (
+    <div style={{ minWidth: 180 }}>
+      {row("Status", dish.reachable ? "Reachable" : "Unreachable")}
+      {dish.connected && row("Connected", "Yes")}
+      {dish.uptime > 0 && row("Uptime", `${Math.floor(dish.uptime / 3600)}h ${Math.floor((dish.uptime % 3600) / 60)}m`)}
+      {dish.pop_ping_latency_ms > 0 && row("Latency", `${dish.pop_ping_latency_ms.toFixed(0)} ms`)}
+      {dish.signal_quality > 0 && row("Signal", `${(dish.signal_quality * 100).toFixed(0)}%`)}
+      {dish.obstructed && row("Obstructed", `${(dish.fraction_obstructed * 100).toFixed(1)}%`)}
+      {dish.downlink_bps > 0 && row("Downlink", `${(dish.downlink_bps / 1000000).toFixed(1)} Mbps`)}
+      {dish.uplink_bps > 0 && row("Uplink", `${(dish.uplink_bps / 1000000).toFixed(1)} Mbps`)}
+      {dish.software_version && row("Software", dish.software_version)}
+      {!dish.reachable && (
+        <div style={{ color: "#fbbf24", fontSize: 11, marginTop: 6 }}>
+          Dish is not reachable. Quota tracking relies on router counters only.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConnectionStatus({ connected, state }: { connected: boolean; state: StateSnapshot | null }) {
+  if (!connected) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444", display: "inline-block" }} />
+        <span style={{ color: "#666", fontSize: 12 }}>Reconnecting...</span>
+      </div>
+    );
+  }
+
+  const dish = state?.dish;
+  const dishReachable = dish?.reachable === true;
+  const dotColor = dishReachable ? "#4ade80" : "#fbbf24";
+  const label = dishReachable ? "Connected" : "Connected, dish unreachable";
+
+  const indicator = (
+    <div
+      style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, cursor: dish ? "pointer" : "default" }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, display: "inline-block" }} />
+      <span style={{ color: "#666", fontSize: 12 }}>{label}</span>
+    </div>
+  );
+
+  if (!dish) return indicator;
+
+  return (
+    <Popover
+      content={<DishTooltip dish={dish} />}
+      title={<span style={{ fontSize: 13 }}>Starlink Dish</span>}
+      trigger="click"
+      overlayInnerStyle={{ background: "#111", border: "1px solid #333" }}
+    >
+      {indicator}
+    </Popover>
+  );
 }
 
 export default function App() {
@@ -74,27 +139,7 @@ export default function App() {
                 Starlink Quota Manager
               </span>
             </h1>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                marginTop: 4,
-              }}
-            >
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: connected ? "#4ade80" : "#ef4444",
-                  display: "inline-block",
-                }}
-              />
-              <span style={{ color: "#666", fontSize: 12 }}>
-                {connected ? "Connected" : "Reconnecting..."}
-              </span>
-            </div>
+            <ConnectionStatus connected={connected} state={state} />
           </div>
           <button
             onClick={() => setConfigOpen(true)}
