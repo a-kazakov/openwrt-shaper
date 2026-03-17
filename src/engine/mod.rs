@@ -474,19 +474,26 @@ impl Engine {
 
     /// Compare desired interfaces (from config + auto-detection) against what
     /// tc/nft controllers are currently using. Rebuild if they differ.
+    /// Also handles interfaces that appear/disappear dynamically (e.g. GL-Inet
+    /// "sta" interface only exists when repeater is active).
     fn check_interface_change(&self) {
         let mut inner = self.inner.write().unwrap();
         let snap = inner.cfg.snapshot();
 
-        // Determine desired WAN: re-detect if "auto", otherwise use config value
-        let desired_wan = if inner.cfg.is_wan_auto() {
+        // Determine desired WAN: re-detect if "auto" or if configured interface
+        // doesn't exist (may have disappeared, e.g. wifi repeater disconnected)
+        let desired_wan = if inner.cfg.is_wan_auto()
+            || !iface_exists(&snap.wan_iface)
+        {
             devices::detect_wan_iface().unwrap_or_else(|_| snap.wan_iface.clone())
         } else {
             snap.wan_iface.clone()
         };
 
-        // Determine desired LAN: re-detect if "auto", otherwise use config value
-        let desired_lan = if inner.cfg.is_lan_auto() {
+        // Determine desired LAN: same logic
+        let desired_lan = if inner.cfg.is_lan_auto()
+            || !iface_exists(&snap.lan_iface)
+        {
             devices::detect_lan_iface(&desired_wan)
                 .unwrap_or_else(|_| snap.lan_iface.clone())
         } else {
@@ -973,6 +980,11 @@ impl Engine {
         let mut inner = self.inner.write().unwrap();
         inner.dish_status = status;
     }
+}
+
+/// Check if a network interface exists in sysfs.
+fn iface_exists(name: &str) -> bool {
+    std::path::Path::new(&format!("/sys/class/net/{name}")).exists()
 }
 
 /// Distribute `budget` bytes across devices using water-filling.

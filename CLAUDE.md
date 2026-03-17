@@ -96,4 +96,4 @@ Vanilla JS, single HTML file, dark theme, all embedded via `rust-embed`. No fram
 - Config validation enforces ranges (e.g., `curve_shape` 0.10–2.00, `billing_reset_day` 1–28)
 - The `down_up_ratio` (default 0.80) splits bandwidth asymmetrically only when shaping is active
 - CLI flags: `--config`, `--db`, `--version`
-- Default paths: `/etc/slqm/config.json`, `/var/lib/slqm/state.db`
+- Default paths: `/etc/slqm/config.json`, `/etc/slqm/state.db`

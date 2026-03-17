@@ -14,6 +14,50 @@ use tracing::{error, info, warn};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Check if a network interface exists in sysfs.
+fn iface_exists(name: &str) -> bool {
+    std::path::Path::new(&format!("/sys/class/net/{name}")).exists()
+}
+
+/// Resolve an interface name: if explicit and exists, use it; if explicit but missing,
+/// warn and fall back to auto-detection; if "auto", auto-detect.
+fn resolve_interface<F>(configured: &str, role: &str, detect: F) -> String
+where
+    F: FnOnce() -> Result<String, String>,
+{
+    if configured != "auto" && iface_exists(configured) {
+        info!("{role} interface: {configured} (configured)");
+        return configured.to_string();
+    }
+
+    if configured != "auto" {
+        warn!(
+            "{role} interface {configured} does not exist, falling back to auto-detection"
+        );
+    }
+
+    match detect() {
+        Ok(iface) => {
+            info!("{role} interface: {iface} (auto-detected)");
+            iface
+        }
+        Err(e) => {
+            if configured != "auto" {
+                // Explicit interface doesn't exist and auto-detection failed too.
+                // Use the configured name anyway — it may appear later (e.g. repeater
+                // connecting) and check_interface_change() will pick it up.
+                warn!(
+                    "{role} auto-detection failed ({e}), using configured {configured} (may not exist yet)"
+                );
+                configured.to_string()
+            } else {
+                error!("failed to detect {role} interface: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "slqm", about = "Starlink Quota Manager")]
 struct Args {
@@ -21,8 +65,8 @@ struct Args {
     #[arg(long, default_value = "/etc/slqm/config.json")]
     config: String,
 
-    /// Path to database file
-    #[arg(long, default_value = "/var/lib/slqm/state.db")]
+    /// Path to database file (must be on persistent storage, not tmpfs)
+    #[arg(long, default_value = "/etc/slqm/state.db")]
     db: String,
 
     /// Print version and exit
@@ -61,33 +105,20 @@ async fn main() {
         snap.listen_addr
     );
 
-    // Detect interfaces
-    let wan = match netctl::devices::detect_wan_iface() {
-        Ok(iface) => {
-            info!("detected WAN interface: {iface}");
-            iface
-        }
-        Err(e) => {
-            if snap.wan_iface == "auto" {
-                error!("failed to detect WAN interface: {e}");
-                std::process::exit(1);
-            }
-            snap.wan_iface.clone()
-        }
-    };
-    let lan = match netctl::devices::detect_lan_iface(&wan) {
-        Ok(iface) => {
-            info!("detected LAN interface: {iface}");
-            iface
-        }
-        Err(e) => {
-            if snap.lan_iface == "auto" {
-                error!("failed to detect LAN interface: {e}");
-                std::process::exit(1);
-            }
-            snap.lan_iface.clone()
-        }
-    };
+    // Detect interfaces.
+    // If an explicit interface is configured but doesn't exist (e.g. GL-Inet "sta"
+    // interface only present when repeater is active), fall back to auto-detection
+    // instead of crashing.
+    let wan = resolve_interface(
+        &snap.wan_iface,
+        "WAN",
+        netctl::devices::detect_wan_iface,
+    );
+    let lan = resolve_interface(
+        &snap.lan_iface,
+        "LAN",
+        || netctl::devices::detect_lan_iface(&wan),
+    );
     cfg.resolve_ifaces(&wan, &lan);
 
     // Open database
@@ -191,10 +222,28 @@ async fn main() {
         }
     });
 
-    // Wait for shutdown signal
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            info!("received SIGINT, shutting down");
+    // Wait for shutdown signal (SIGINT or SIGTERM)
+    // OpenWrt's procd sends SIGTERM on service stop / reboot.
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm = signal(SignalKind::terminate())
+            .expect("failed to register SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("received SIGINT, shutting down");
+            }
+            _ = sigterm.recv() => {
+                info!("received SIGTERM, shutting down");
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("received SIGINT, shutting down");
+            }
         }
     }
 
