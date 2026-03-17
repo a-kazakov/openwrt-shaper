@@ -18,22 +18,22 @@ function bucketColor(pct: number): string {
   return colors.success;
 }
 
-function bucketStatus(device: DeviceSnapshot): { text: string; color: string } | null {
-  const deviceSpeedBps = device.rate_down_bps + device.rate_up_bps;
-  const refillBps = device.bucket_refill_bps;
-  const net = refillBps - deviceSpeedBps;
-
-  if (device.bucket_pct >= 100 && deviceSpeedBps === 0) {
+/** Compute bucket status from the actual byte-level change between snapshots.
+ *  `deltaBps` is (current_bucket_bytes - prev_bucket_bytes) * 8 / tick_seconds,
+ *  reflecting the true net change after both drain and refill within the tick. */
+function bucketStatus(device: DeviceSnapshot, deltaBps: number | null): { text: string; color: string } | null {
+  if (device.bucket_pct >= 100) {
     return { text: "Full", color: colors.success };
   }
-  if (device.bucket_pct <= 0 && refillBps === 0) {
+  if (device.bucket_pct <= 0 && device.bucket_refill_bps === 0) {
     return { text: "Empty", color: colors.danger };
   }
-  if (net > 0) {
-    return { text: `Refilling at ${formatRate(net)}`, color: colors.success };
+  if (deltaBps == null) return null;
+  if (deltaBps > 0) {
+    return { text: `Refilling at ${formatRate(deltaBps)}`, color: colors.success };
   }
-  if (net < 0) {
-    return { text: `Draining at ${formatRate(-net)}`, color: colors.warning };
+  if (deltaBps < 0) {
+    return { text: `Draining at ${formatRate(-deltaBps)}`, color: colors.warning };
   }
   return null;
 }
@@ -216,15 +216,17 @@ function TurboButton({
 
 function DeviceCard({
   device,
+  bucketDeltaBps,
   onMessage,
 }: {
   device: DeviceSnapshot;
+  bucketDeltaBps: number | null;
   onMessage: Props["onMessage"];
 }) {
   const name = device.hostname || device.ip || device.mac;
   const bucketMB = formatMB(device.bucket_bytes);
   const capacityMB = formatMB(device.bucket_capacity);
-  const status = bucketStatus(device);
+  const status = bucketStatus(device, bucketDeltaBps);
 
   return (
     <Card
@@ -319,6 +321,34 @@ function DeviceCard({
 }
 
 export default function DeviceTable({ devices, onMessage }: Props) {
+  // Track previous bucket_bytes per device to compute actual delta rate.
+  // This avoids the issue where a bucket drained and refilled within the same
+  // tick shows "Draining" even though the level stayed at 100%.
+  const prevBytesRef = useRef<Record<string, number>>({});
+  const prevTsRef = useRef<number>(0);
+
+  // Compute delta bps per device from actual bucket byte changes
+  const deltaBpsMap: Record<string, number | null> = {};
+  const now = Date.now() / 1000;
+  const elapsed = prevTsRef.current > 0 ? now - prevTsRef.current : 0;
+
+  for (const d of devices) {
+    const prev = prevBytesRef.current[d.mac];
+    if (prev != null && elapsed > 0) {
+      deltaBpsMap[d.mac] = ((d.bucket_bytes - prev) * 8) / elapsed;
+    } else {
+      deltaBpsMap[d.mac] = null;
+    }
+  }
+
+  // Update refs after computing deltas
+  const nextBytes: Record<string, number> = {};
+  for (const d of devices) {
+    nextBytes[d.mac] = d.bucket_bytes;
+  }
+  prevBytesRef.current = nextBytes;
+  prevTsRef.current = now;
+
   if (!devices || devices.length === 0) {
     return (
       <div
@@ -358,7 +388,12 @@ export default function DeviceTable({ devices, onMessage }: Props) {
         }}
       >
         {devices.map((d) => (
-          <DeviceCard key={d.mac} device={d} onMessage={onMessage} />
+          <DeviceCard
+            key={d.mac}
+            device={d}
+            bucketDeltaBps={deltaBpsMap[d.mac] ?? null}
+            onMessage={onMessage}
+          />
         ))}
       </div>
     </div>
