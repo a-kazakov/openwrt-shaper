@@ -12,7 +12,7 @@ function ifaceLabel(iface: InterfaceInfo): string {
     if (iface.ip) parts.push(iface.ip.split("/")[0]);
     if (iface.speed_mbps) parts.push(`${iface.speed_mbps} Mbps`);
     const total = iface.rx_bytes + iface.tx_bytes;
-    if (total > 0) parts.push(`▼${formatBytesRound(iface.rx_bytes)} ▲${formatBytesRound(iface.tx_bytes)}`);
+    if (total > 0) parts.push(`▲${formatBytesRound(iface.tx_bytes)} ▼${formatBytesRound(iface.rx_bytes)}`);
   } else {
     parts.push("down");
   }

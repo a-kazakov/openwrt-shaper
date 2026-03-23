@@ -290,7 +290,7 @@ function DeviceCard({
           </span>
           {device.shaped_down_kbit != null && device.shaped_up_kbit != null && (
             <span style={{ color: "#555" }}>
-              Max: {formatLimitPair(device.shaped_down_kbit * 1000, device.shaped_up_kbit * 1000)}
+              Max: {formatLimitPair(device.shaped_up_kbit * 1000, device.shaped_down_kbit * 1000)}
             </span>
           )}
         </div>
