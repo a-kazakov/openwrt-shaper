@@ -462,8 +462,16 @@ impl Engine {
         // Water-filling refill: distribute budget fairly without exceeding curve rate.
         // Devices closest to full get served first so their overflow is redistributed
         // to hungrier devices, ensuring no tokens are wasted.
-        // Throttled and disabled devices do not receive refill.
-        let total_budget = curve_rate_bps * snap.tick_interval_sec as i64;
+        // Throttled and disabled devices do not receive refill; their actual consumption
+        // is subtracted from the budget so normal devices get the leftover.
+        let overridden_bytes: i64 = inner
+            .devices
+            .values()
+            .filter(|dev| dev.override_mode.is_some())
+            .map(|dev| dev.delta_up + dev.delta_down)
+            .sum();
+        let total_budget =
+            (curve_rate_bps * snap.tick_interval_sec as i64 - overridden_bytes).max(0);
         let mut spaces: Vec<(String, i64)> = inner
             .devices
             .iter()
@@ -822,15 +830,24 @@ impl Engine {
             0
         };
 
-        // Compute per-device refill rate (excludes overridden devices)
+        // Compute per-device refill rate (excludes overridden devices).
+        // Subtract overridden devices' last-tick consumption from the budget.
+        let snap_cfg = inner.cfg.snapshot();
         let curve_rate_bps = inner.curve.rate_bytes_per_sec(remaining);
+        let overridden_bps: i64 = inner
+            .devices
+            .values()
+            .filter(|d| d.override_mode.is_some())
+            .map(|d| (d.delta_up + d.delta_down) * 8 / snap_cfg.tick_interval_sec as i64)
+            .sum();
+        let effective_rate_bps = (curve_rate_bps * 8 - overridden_bps).max(0);
         let non_full_count = inner
             .devices
             .values()
             .filter(|d| !d.bucket.is_full() && d.override_mode.is_none())
             .count()
             .max(1) as i64;
-        let refill_bps_per_device = curve_rate_bps * 8 / non_full_count;
+        let refill_bps_per_device = effective_rate_bps / non_full_count;
 
         let mut devices = Vec::with_capacity(inner.devices.len());
         for dev in inner.devices.values() {
@@ -1291,5 +1308,53 @@ mod tests {
         assert_eq!(map["a"], 50);
         assert_eq!(map["b"], 200);
         assert_eq!(map["c"], 350);
+    }
+
+    /// Scenario: 100 kb/s curve rate, 5 devices, 4 always-throttled.
+    /// Throttled devices consume 30 kb/s combined (below their fair share).
+    /// The normal device should get refilled at 70 kb/s (100 - 30 consumed).
+    #[test]
+    fn refill_budget_subtracts_overridden_consumption() {
+        // Curve rate = 100 kbit/s = 12500 bytes/sec.  Tick = 2s.
+        let curve_rate_bps: i64 = 12500;
+        let tick_sec: i64 = 2;
+        let full_budget = curve_rate_bps * tick_sec; // 25000 bytes
+
+        // 4 throttled devices consumed 30 kbit/s = 3750 bytes/sec combined → 7500 bytes/tick
+        let overridden_bytes: i64 = 7500;
+
+        // Effective budget for normal devices
+        let total_budget = (full_budget - overridden_bytes).max(0);
+
+        // Expected: 25000 - 7500 = 17500 bytes = 70 kbit/s * 2s
+        assert_eq!(total_budget, 17500);
+
+        // Normal device has plenty of space → gets all 17500
+        let mut spaces = vec![("normal".into(), 1_000_000i64)];
+        let allocs = water_fill_refill(total_budget, &mut spaces);
+        assert_eq!(allocs.len(), 1);
+        assert_eq!(allocs[0].1, 17500);
+
+        // Verify: 17500 bytes / 2s * 8 = 70000 bps = 70 kbit/s ✓
+        let refill_kbit = allocs[0].1 * 8 / tick_sec / 1000;
+        assert_eq!(refill_kbit, 70);
+    }
+
+    /// When overridden devices consume MORE than the curve rate (unlikely but
+    /// defensive), the budget clamps to 0 — normal devices get no refill.
+    #[test]
+    fn refill_budget_clamps_at_zero() {
+        let curve_rate_bps: i64 = 12500;
+        let tick_sec: i64 = 2;
+        let full_budget = curve_rate_bps * tick_sec; // 25000
+
+        // Overridden devices somehow consumed more than curve rate
+        let overridden_bytes: i64 = 30000;
+        let total_budget = (full_budget - overridden_bytes).max(0);
+        assert_eq!(total_budget, 0);
+
+        let mut spaces = vec![("normal".into(), 1_000_000i64)];
+        let allocs = water_fill_refill(total_budget, &mut spaces);
+        assert!(allocs.is_empty());
     }
 }
