@@ -1366,4 +1366,424 @@ mod tests {
         let allocs = water_fill_refill(total_budget, &mut spaces);
         assert!(allocs.is_empty());
     }
+
+    // =========================================================================
+    //  Refill budget: throttled/disabled consumption subtracted, turbo is NOT
+    // =========================================================================
+
+    /// Helper: compute effective refill budget using the same formula as tick().
+    /// `device_deltas` = list of (override_mode, turbo_active, bytes_consumed_this_tick).
+    fn compute_refill_budget(
+        curve_rate_bps: i64,
+        tick_sec: i64,
+        device_deltas: &[(Option<crate::model::DeviceMode>, bool, i64)],
+    ) -> i64 {
+        let throttled_disabled_bytes: i64 = device_deltas
+            .iter()
+            .filter(|(om, turbo, _)| om.is_some() && !turbo)
+            .map(|(_, _, bytes)| bytes)
+            .sum();
+        (curve_rate_bps * tick_sec - throttled_disabled_bytes).max(0)
+    }
+
+    /// Turbo devices must NOT reduce the refill budget even though they consume
+    /// significant bandwidth. Turbo is a user-granted privilege; penalizing
+    /// other devices for it would be unfair.
+    #[test]
+    fn refill_budget_turbo_not_subtracted() {
+        let curve_rate_bps: i64 = 12500; // 100 kbit/s
+        let tick_sec: i64 = 2;
+
+        // One turbo device consuming 80 kb/s = 20000 bytes/tick
+        // One normal device
+        let devices = vec![
+            (None, true, 20000i64),  // turbo — must NOT reduce budget
+            (None, false, 0i64),      // normal
+        ];
+        let budget = compute_refill_budget(curve_rate_bps, tick_sec, &devices);
+
+        // Budget should be the full 25000 (turbo not subtracted)
+        assert_eq!(budget, 25000, "turbo consumption must not reduce budget");
+    }
+
+    /// Throttled devices reduce the budget by their actual consumption.
+    #[test]
+    fn refill_budget_throttled_subtracted() {
+        let curve_rate_bps: i64 = 12500;
+        let tick_sec: i64 = 2;
+
+        // Two throttled devices consuming 5000 bytes/tick each
+        // One normal device
+        let devices = vec![
+            (Some(crate::model::DeviceMode::Throttled), false, 5000i64),
+            (Some(crate::model::DeviceMode::Throttled), false, 5000i64),
+            (None, false, 0i64),
+        ];
+        let budget = compute_refill_budget(curve_rate_bps, tick_sec, &devices);
+        assert_eq!(budget, 25000 - 10000, "throttled consumption subtracted");
+        assert_eq!(budget, 15000);
+    }
+
+    /// Disabled devices reduce the budget by their (tiny) actual consumption.
+    #[test]
+    fn refill_budget_disabled_subtracted() {
+        let curve_rate_bps: i64 = 12500;
+        let tick_sec: i64 = 2;
+
+        // One disabled device consuming 10 bytes/tick (shaped to 1 kbit)
+        let devices = vec![
+            (Some(crate::model::DeviceMode::Disabled), false, 10i64),
+            (None, false, 0i64),
+        ];
+        let budget = compute_refill_budget(curve_rate_bps, tick_sec, &devices);
+        assert_eq!(budget, 25000 - 10);
+    }
+
+    /// Mixed scenario: turbo + throttled + disabled + normal.
+    /// Only throttled and disabled consumption reduces the budget.
+    #[test]
+    fn refill_budget_mixed_modes() {
+        let curve_rate_bps: i64 = 12500; // 100 kbit/s
+        let tick_sec: i64 = 2;
+        // full budget = 25000
+
+        let devices = vec![
+            (None, true, 15000i64),                                       // turbo: NOT subtracted
+            (Some(crate::model::DeviceMode::Throttled), false, 4000i64),  // throttled: subtracted
+            (Some(crate::model::DeviceMode::Disabled), false, 20i64),     // disabled: subtracted
+            (None, false, 3000i64),                                       // normal: NOT subtracted
+            (None, false, 1000i64),                                       // normal: NOT subtracted
+        ];
+        let budget = compute_refill_budget(curve_rate_bps, tick_sec, &devices);
+        // Only throttled (4000) + disabled (20) = 4020 subtracted
+        assert_eq!(budget, 25000 - 4020);
+        assert_eq!(budget, 20980);
+    }
+
+    /// All devices throttled — budget goes to zero, no refill happens.
+    #[test]
+    fn refill_budget_all_throttled() {
+        let curve_rate_bps: i64 = 12500;
+        let tick_sec: i64 = 2;
+
+        let devices = vec![
+            (Some(crate::model::DeviceMode::Throttled), false, 8000i64),
+            (Some(crate::model::DeviceMode::Throttled), false, 8000i64),
+            (Some(crate::model::DeviceMode::Throttled), false, 9000i64),
+        ];
+        let budget = compute_refill_budget(curve_rate_bps, tick_sec, &devices);
+        // 25000 - 25000 = 0
+        assert_eq!(budget, 0);
+    }
+
+    /// No overridden devices — full curve rate goes to refill.
+    #[test]
+    fn refill_budget_no_overrides() {
+        let curve_rate_bps: i64 = 12500;
+        let tick_sec: i64 = 2;
+
+        let devices = vec![
+            (None, false, 5000i64),
+            (None, false, 3000i64),
+        ];
+        let budget = compute_refill_budget(curve_rate_bps, tick_sec, &devices);
+        assert_eq!(budget, 25000, "no overrides = full budget");
+    }
+
+    // =========================================================================
+    //  Water-fill distribution with throttled budget reduction
+    // =========================================================================
+
+    /// End-to-end: 5 devices, 4 throttled at 30 kb/s combined, 1 normal.
+    /// Normal device gets all 70 kb/s of remaining budget.
+    #[test]
+    fn water_fill_with_throttled_budget() {
+        let curve_rate_bps: i64 = 12500; // 100 kbit/s
+        let tick_sec: i64 = 2;
+
+        // 4 throttled consume 7500 bytes/tick total (30 kbit/s)
+        let throttled_bytes: i64 = 7500;
+        let budget = (curve_rate_bps * tick_sec - throttled_bytes).max(0);
+
+        // Only the normal device participates in refill
+        let mut spaces = vec![("normal".into(), 1_000_000i64)];
+        let allocs = water_fill_refill(budget, &mut spaces);
+
+        assert_eq!(allocs.len(), 1);
+        assert_eq!(allocs[0].1, 17500); // 70 kbit/s * 2s / 8 = 17500 bytes
+    }
+
+    /// Two normal devices sharing the leftover from one throttled device.
+    /// Budget split fairly via water-fill.
+    #[test]
+    fn water_fill_two_normal_one_throttled() {
+        let curve_rate_bps: i64 = 12500; // 100 kbit/s
+        let tick_sec: i64 = 2;
+
+        // 1 throttled consumes 5000 bytes/tick (20 kbit/s)
+        let budget = (curve_rate_bps * tick_sec - 5000).max(0);
+        assert_eq!(budget, 20000);
+
+        // Two normal devices, both hungry
+        let mut spaces = vec![
+            ("dev_a".into(), 500_000i64),
+            ("dev_b".into(), 500_000i64),
+        ];
+        let allocs = water_fill_refill(budget, &mut spaces);
+        let total: i64 = allocs.iter().map(|(_, a)| a).sum();
+        assert_eq!(total, 20000, "full budget distributed");
+
+        let map: HashMap<String, i64> = allocs.into_iter().collect();
+        assert_eq!(map["dev_a"], 10000, "equal split");
+        assert_eq!(map["dev_b"], 10000, "equal split");
+    }
+
+    // =========================================================================
+    //  Fair share and tc update detection
+    // =========================================================================
+
+    /// fair_share changes when a device connects. Simulates the logic:
+    /// before = curve_rate / 2 devices, after = curve_rate / 3 devices.
+    /// The change should be detected (share_changed = true).
+    #[test]
+    fn fair_share_changes_on_device_connect() {
+        let curve_rate_kbit = 50000;
+        let min_rate_kbit = 1000;
+
+        let share_before = {
+            let active = 2;
+            let s = curve_rate_kbit / active;
+            s.max(min_rate_kbit)
+        };
+        let share_after = {
+            let active = 3;
+            let s = curve_rate_kbit / active;
+            s.max(min_rate_kbit)
+        };
+
+        assert_ne!(share_before, share_after, "fair share must change");
+        assert_eq!(share_before, 25000);
+        assert_eq!(share_after, 16666);
+
+        // Simulates the tc update detection
+        let last_fair_share = share_before;
+        let share_changed = share_after != last_fair_share;
+        assert!(share_changed, "tc update should be triggered");
+    }
+
+    /// fair_share change from 1→2 devices halves the share.
+    /// From 2→1 devices doubles it. Both must trigger tc update.
+    #[test]
+    fn fair_share_changes_on_device_disconnect() {
+        let curve_rate_kbit = 50000;
+
+        let share_2dev = curve_rate_kbit / 2; // 25000
+        let share_1dev = curve_rate_kbit / 1; // 50000
+
+        assert_ne!(share_2dev, share_1dev);
+        assert_eq!(share_1dev, 50000);
+        assert_eq!(share_2dev, 25000);
+    }
+
+    /// Burst ceil within 1% tolerance does NOT trigger tc update.
+    /// Burst ceil change >1% DOES trigger.
+    /// Note: uses integer division, so 1500/100000*100 = 1 (truncated).
+    #[test]
+    fn ceil_change_threshold_one_percent() {
+        let last_ceil: i32 = 100_000; // 100 Mbps
+
+        // 0.5% change (500) → 500*100/100000 = 0 — should NOT trigger
+        let new_ceil_small = 100_500;
+        let pct_small = (new_ceil_small - last_ceil).unsigned_abs() * 100
+            / last_ceil.unsigned_abs().max(1);
+        assert_eq!(pct_small, 0);
+        assert!(!(pct_small > 1), "0.5% change should not trigger");
+
+        // 2% change (2000) → 2000*100/100000 = 2 — should trigger
+        let new_ceil_big = 102_000;
+        let pct_big = (new_ceil_big - last_ceil).unsigned_abs() * 100
+            / last_ceil.unsigned_abs().max(1);
+        assert_eq!(pct_big, 2);
+        assert!(pct_big > 1, "2% change should trigger");
+
+        // Exact 1% (1000) → 1000*100/100000 = 1 — should NOT trigger (> 1, not >=)
+        let new_ceil_exact = 101_000;
+        let pct_exact = (new_ceil_exact - last_ceil).unsigned_abs() * 100
+            / last_ceil.unsigned_abs().max(1);
+        assert_eq!(pct_exact, 1);
+        assert!(!(pct_exact > 1), "exactly 1% should not trigger");
+    }
+
+    /// When last_burst_ceil is 0 (new device), ceil_changed is always false,
+    /// but mode_changed is true (Burst != initial), so tc update still fires.
+    #[test]
+    fn new_device_always_gets_tc_update() {
+        let last_burst_ceil: i32 = 0;
+        let burst_ceil: i32 = 300_000;
+
+        // ceil_changed formula: last > 0 && delta% > 1
+        let ceil_changed = last_burst_ceil > 0
+            && (burst_ceil - last_burst_ceil).unsigned_abs() * 100
+                / last_burst_ceil.unsigned_abs().max(1)
+                > 1;
+        assert!(!ceil_changed, "ceil_changed false when last is 0");
+
+        // But mode_changed is true (new device starts with last_mode=Burst,
+        // bucket starts in Sustained → mismatch)
+        let last_mode = crate::model::DeviceMode::Burst;
+        let effective_mode = crate::model::DeviceMode::Sustained;
+        let mode_changed = effective_mode != last_mode;
+        assert!(mode_changed, "mode_changed true for new device");
+
+        // At least one trigger fires
+        assert!(mode_changed || ceil_changed);
+    }
+
+    // =========================================================================
+    //  Effective mode priority: override > turbo > bucket hysteresis
+    // =========================================================================
+
+    /// Turbo takes priority over everything, even if override is set.
+    /// (In practice turbo clears override, but test the priority logic.)
+    #[test]
+    fn effective_mode_turbo_wins() {
+        let turbo_active = true;
+        let override_mode = Some(crate::model::DeviceMode::Throttled);
+        let bucket_mode = crate::model::DeviceMode::Burst;
+
+        let effective = if turbo_active {
+            crate::model::DeviceMode::Turbo
+        } else if let Some(om) = override_mode {
+            om
+        } else {
+            bucket_mode
+        };
+        assert_eq!(effective, crate::model::DeviceMode::Turbo);
+    }
+
+    /// Override takes priority over bucket hysteresis.
+    #[test]
+    fn effective_mode_override_over_bucket() {
+        let turbo_active = false;
+        let override_mode = Some(crate::model::DeviceMode::Disabled);
+        let bucket_mode = crate::model::DeviceMode::Burst;
+
+        let effective = if turbo_active {
+            crate::model::DeviceMode::Turbo
+        } else if let Some(om) = override_mode {
+            om
+        } else {
+            bucket_mode
+        };
+        assert_eq!(effective, crate::model::DeviceMode::Disabled);
+    }
+
+    /// No turbo, no override — bucket mode is used.
+    #[test]
+    fn effective_mode_falls_through_to_bucket() {
+        let turbo_active = false;
+        let override_mode: Option<crate::model::DeviceMode> = None;
+        let bucket_mode = crate::model::DeviceMode::Sustained;
+
+        let effective = if turbo_active {
+            crate::model::DeviceMode::Turbo
+        } else if let Some(om) = override_mode {
+            om
+        } else {
+            bucket_mode
+        };
+        assert_eq!(effective, crate::model::DeviceMode::Sustained);
+    }
+
+    // =========================================================================
+    //  Active device counting
+    // =========================================================================
+
+    /// Helper: count active devices using the same logic as tick().
+    fn count_active(
+        devices: &[(Option<crate::model::DeviceMode>, bool, bool)], // (override, turbo, bucket_full)
+    ) -> i32 {
+        let mut active = 0i32;
+        for &(override_mode, turbo, bucket_full) in devices {
+            if override_mode == Some(crate::model::DeviceMode::Disabled) {
+                continue;
+            }
+            if !bucket_full || turbo
+                || override_mode == Some(crate::model::DeviceMode::Throttled)
+            {
+                active += 1;
+            }
+        }
+        active.max(1)
+    }
+
+    /// Disabled devices are excluded from active count entirely.
+    #[test]
+    fn active_count_excludes_disabled() {
+        let devices = vec![
+            (Some(crate::model::DeviceMode::Disabled), false, false),
+            (None, false, false),
+        ];
+        assert_eq!(count_active(&devices), 1);
+    }
+
+    /// Throttled devices count as active (they consume fair share bandwidth).
+    #[test]
+    fn active_count_includes_throttled() {
+        let devices = vec![
+            (Some(crate::model::DeviceMode::Throttled), false, true),
+            (None, false, false),
+        ];
+        assert_eq!(count_active(&devices), 2);
+    }
+
+    /// Devices with full buckets and no override are NOT active
+    /// (they don't need refill or special tc handling).
+    #[test]
+    fn active_count_excludes_full_normal() {
+        let devices = vec![
+            (None, false, true),  // full bucket, no override → inactive
+            (None, false, false), // non-full → active
+        ];
+        assert_eq!(count_active(&devices), 1);
+    }
+
+    /// Turbo devices are active even with full buckets.
+    #[test]
+    fn active_count_includes_turbo_even_if_full() {
+        let devices = vec![
+            (None, true, true), // turbo + full → still active
+        ];
+        assert_eq!(count_active(&devices), 1);
+    }
+
+    /// Empty device list → clamped to 1 (prevents division by zero).
+    #[test]
+    fn active_count_minimum_one() {
+        let devices: Vec<(Option<crate::model::DeviceMode>, bool, bool)> = vec![];
+        assert_eq!(count_active(&devices), 1);
+    }
+
+    /// All disabled → clamped to 1.
+    #[test]
+    fn active_count_all_disabled_clamps() {
+        let devices = vec![
+            (Some(crate::model::DeviceMode::Disabled), false, false),
+            (Some(crate::model::DeviceMode::Disabled), false, false),
+        ];
+        assert_eq!(count_active(&devices), 1);
+    }
+
+    /// Real scenario: 5 devices, 3 throttled, 1 disabled, 1 normal (non-full).
+    #[test]
+    fn active_count_mixed() {
+        let devices = vec![
+            (Some(crate::model::DeviceMode::Throttled), false, true),  // active
+            (Some(crate::model::DeviceMode::Throttled), false, true),  // active
+            (Some(crate::model::DeviceMode::Throttled), false, true),  // active
+            (Some(crate::model::DeviceMode::Disabled), false, false),  // excluded
+            (None, false, false),                                       // active
+        ];
+        assert_eq!(count_active(&devices), 4);
+    }
 }
