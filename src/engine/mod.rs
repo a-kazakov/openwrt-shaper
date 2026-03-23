@@ -90,8 +90,6 @@ struct EngineInner {
 
     // Persistent warnings
     interface_warnings: Vec<Warning>,
-    /// Absolute gap in bytes between Starlink-reported and router-tracked usage at last sync
-    last_sync_gap_bytes: i64,
 }
 
 /// Thread-safe engine handle.
@@ -173,7 +171,6 @@ impl Engine {
                 prev_wan_tx: 0,
                 dish_status: None,
                 interface_warnings: Vec::new(),
-                last_sync_gap_bytes: 0,
             })),
             snapshot_tx,
             snapshot_rx,
@@ -908,40 +905,6 @@ impl Engine {
                     message: "Starlink dish is unreachable. Quota tracking may be inaccurate if internet is not via Starlink.".to_string(),
                 });
             }
-            // Dish-reported usage mismatch
-            let dish_total = dish.usage_down + dish.usage_up;
-            if dish_total > 0 {
-                let gap = (dish_total - inner.month_used).unsigned_abs() as i64;
-                let threshold = snap.usage_mismatch_threshold_mb as i64 * 1_000_000;
-                if threshold > 0 && gap > threshold {
-                    let gap_mb = gap / 1_000_000;
-                    warnings.push(Warning {
-                        id: "usage_mismatch".to_string(),
-                        level: "warning".to_string(),
-                        message: format!(
-                            "Dish-reported usage differs from router by {gap_mb} MB. Use Sync to reconcile."
-                        ),
-                    });
-                }
-            }
-        }
-
-        // Sync-based mismatch (from last /sync call)
-        if inner.last_sync_gap_bytes > 0 {
-            let threshold = snap.usage_mismatch_threshold_mb as i64 * 1_000_000;
-            if threshold > 0 && inner.last_sync_gap_bytes > threshold {
-                // Only add if not already covered by dish-reported mismatch
-                if !warnings.iter().any(|w| w.id == "usage_mismatch") {
-                    let gap_mb = inner.last_sync_gap_bytes / 1_000_000;
-                    warnings.push(Warning {
-                        id: "usage_mismatch".to_string(),
-                        level: "warning".to_string(),
-                        message: format!(
-                            "Last sync showed {gap_mb} MB gap between Starlink and router usage. Consider syncing again."
-                        ),
-                    });
-                }
-            }
         }
 
         let curve_rate = inner.curve.rate(remaining);
@@ -1116,11 +1079,6 @@ impl Engine {
             .retain(|w| !w.id.starts_with("iface_fallback"));
     }
 
-    /// Record the gap between Starlink and router usage from a sync call.
-    pub fn set_sync_gap(&self, gap_bytes: i64) {
-        let mut inner = self.inner.write().unwrap();
-        inner.last_sync_gap_bytes = gap_bytes;
-    }
 }
 
 /// Read a sysfs counter for a network interface. Returns 0 on failure.

@@ -55,9 +55,6 @@ pub async fn handle_sync(
     let current_bytes = engine.month_used();
     let delta = starlink_bytes - current_bytes;
 
-    // Record the absolute gap for mismatch warnings
-    engine.set_sync_gap((starlink_bytes - current_bytes).unsigned_abs() as i64);
-
     if delta > 0 {
         engine.adjust_quota(delta);
         (
@@ -78,8 +75,6 @@ pub async fn handle_sync(
             })),
         )
     } else {
-        // Perfect sync — clear the gap
-        engine.set_sync_gap(0);
         (StatusCode::OK, Json(json!({"note": "Already in sync"})))
     }
 }

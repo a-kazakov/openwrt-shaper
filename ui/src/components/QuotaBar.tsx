@@ -1,17 +1,16 @@
 import { useState } from "react";
 import { Progress, Button, Modal, InputNumber, Popconfirm } from "antd";
 import { ToolOutlined, SyncOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
-import type { QuotaState, DishStatus } from "../types";
+import type { QuotaState } from "../types";
 import { formatBytes } from "../utils";
 import { syncUsage, adjustQuota, resetCycle } from "../api";
 
 interface Props {
   quota: QuotaState;
-  dish?: DishStatus;
   onMessage: (text: string, type: "success" | "error" | "info") => void;
 }
 
-export default function QuotaBar({ quota, dish, onMessage }: Props) {
+export default function QuotaBar({ quota, onMessage }: Props) {
   const pct = Math.max(0, Math.min(100, quota.pct));
   const [modalOpen, setModalOpen] = useState(false);
   const [syncGb, setSyncGb] = useState<number | null>(null);
@@ -19,11 +18,6 @@ export default function QuotaBar({ quota, dish, onMessage }: Props) {
   const [syncLoading, setSyncLoading] = useState(false);
   const [adjustLoading, setAdjustLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
-
-  // Pre-fill sync value from dish data when modal opens
-  const dishUsageGb = dish?.reachable
-    ? Math.round(((dish.usage_down + dish.usage_up) / 1000000000) * 100) / 100
-    : null;
 
   let strokeColor: string;
   if (quota.pct >= 90) {
@@ -113,7 +107,6 @@ export default function QuotaBar({ quota, dish, onMessage }: Props) {
             </span>
             <button
               onClick={() => {
-                if (dishUsageGb != null && dishUsageGb > 0) setSyncGb(dishUsageGb);
                 setModalOpen(true);
               }}
               style={{
@@ -169,9 +162,7 @@ export default function QuotaBar({ quota, dish, onMessage }: Props) {
               Sync with Starlink
             </div>
             <div style={{ color: "#555", fontSize: 12, marginBottom: 8 }}>
-              {dishUsageGb != null && dishUsageGb > 0
-                ? `Pre-filled from dish (${dishUsageGb} GB). Edit if needed.`
-                : "Enter usage from the Starlink app to reconcile."}
+              Enter usage from the Starlink app to reconcile.
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <InputNumber

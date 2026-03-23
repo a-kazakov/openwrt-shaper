@@ -2,10 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-fn default_mismatch_threshold() -> i32 {
-    200
-}
-
 /// A preconfigured device entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StaticDevice {
@@ -47,8 +43,6 @@ pub struct Values {
     pub device_scan_interval_sec: i32,
     pub overage_cost_per_gb: f64,
     pub plan_cost_monthly: f64,
-    #[serde(default = "default_mismatch_threshold")]
-    pub usage_mismatch_threshold_mb: i32,
     pub ui_auth: UIAuth,
     #[serde(default)]
     pub static_devices: Vec<StaticDevice>,
@@ -78,7 +72,6 @@ impl Default for Values {
             device_scan_interval_sec: 15,
             overage_cost_per_gb: 10.0,
             plan_cost_monthly: 250.0,
-            usage_mismatch_threshold_mb: 200,
             ui_auth: UIAuth::default(),
             static_devices: Vec::new(),
         }
