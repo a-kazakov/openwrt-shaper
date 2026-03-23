@@ -29,12 +29,12 @@ impl DeviceBucket {
     }
 
     /// Recalculate capacity, burst ceiling, and hysteresis thresholds.
+    /// Called for ALL devices every tick (including overridden) so that
+    /// capacity and thresholds stay current when devices join/leave.
     ///
-    /// Hysteresis creates a dead zone between shape_at and unshape_at to prevent
-    /// mode flapping. shape_at = bytes drained in one tick at max burst speed
-    /// (capped at 25% capacity to prevent oscillation in small buckets).
-    /// unshape_at = 3× shape_at, giving a wide dead zone for stability.
-    pub fn update(
+    /// Does NOT evaluate mode transitions — call `evaluate_mode` separately
+    /// for devices that should participate in hysteresis.
+    pub fn update_params(
         &mut self,
         curve_rate_bytes_per_sec: i64,
         duration_sec: i32,
@@ -69,17 +69,33 @@ impl DeviceBucket {
         if self.burst_ceil_kbit < BURST_CEIL_FLOOR_KBIT {
             self.burst_ceil_kbit = BURST_CEIL_FLOOR_KBIT;
         }
-        let shape_at = self.shape_at;
-        let unshape_at = self.unshape_at;
+    }
 
+    /// Evaluate hysteresis mode transitions based on current token level.
+    /// Only call for devices not under a user override (turbo/throttled/disabled
+    /// are managed externally).
+    pub fn evaluate_mode(&mut self) {
         if self.mode == DeviceMode::Turbo {
             return;
         }
-        if self.mode == DeviceMode::Burst && self.tokens < shape_at {
+        if self.mode == DeviceMode::Burst && self.tokens < self.shape_at {
             self.mode = DeviceMode::Sustained;
-        } else if self.mode == DeviceMode::Sustained && self.tokens > unshape_at {
+        } else if self.mode == DeviceMode::Sustained && self.tokens > self.unshape_at {
             self.mode = DeviceMode::Burst;
         }
+    }
+
+    /// Combined update_params + evaluate_mode (convenience for callers
+    /// that always want both, e.g. tests and initial setup).
+    pub fn update(
+        &mut self,
+        curve_rate_bytes_per_sec: i64,
+        duration_sec: i32,
+        tick_sec: i32,
+        max_burst_kbit: i32,
+    ) {
+        self.update_params(curve_rate_bytes_per_sec, duration_sec, tick_sec, max_burst_kbit);
+        self.evaluate_mode();
     }
 
     /// Remove bytes from the bucket. Returns actual drained amount.
@@ -341,5 +357,95 @@ mod tests {
         // Negative
         b.set_tokens(-100);
         assert_eq!(b.tokens(), 0);
+    }
+
+    // === Tests for update_params / evaluate_mode split ===
+
+    /// update_params updates capacity and thresholds without touching mode.
+    /// This is critical for overridden devices that need current thresholds
+    /// but must NOT have their mode changed by hysteresis.
+    #[test]
+    fn update_params_does_not_change_mode() {
+        let mut b = full_bucket(6_250_000, 300);
+        assert_eq!(b.mode(), DeviceMode::Burst);
+
+        // Drain all tokens → would transition to Sustained if mode were evaluated
+        b.drain(b.tokens());
+        assert_eq!(b.tokens(), 0);
+
+        // update_params alone must NOT change mode
+        b.update_params(6_250_000, 300, 2, 300_000);
+        assert_eq!(b.mode(), DeviceMode::Burst, "update_params must not change mode");
+
+        // Capacity and thresholds should still be updated
+        assert_eq!(b.capacity(), 6_250_000 * 300);
+        let (shape_at, unshape_at) = b.thresholds();
+        assert!(shape_at > 0, "shape_at should be computed");
+        assert!(unshape_at > shape_at, "unshape_at > shape_at");
+        assert!(b.burst_ceil_kbit() > 0, "burst_ceil should be computed");
+    }
+
+    /// evaluate_mode applies hysteresis transitions based on current tokens.
+    #[test]
+    fn evaluate_mode_applies_transitions() {
+        let mut b = full_bucket(6_250_000, 300);
+        b.update_params(6_250_000, 300, 2, 300_000);
+        assert_eq!(b.mode(), DeviceMode::Burst);
+
+        // Drain below shape_at → should transition
+        b.drain(b.tokens());
+        b.evaluate_mode();
+        assert_eq!(b.mode(), DeviceMode::Sustained);
+
+        // Refill above unshape_at → should transition back
+        b.refill(b.capacity());
+        b.evaluate_mode();
+        assert_eq!(b.mode(), DeviceMode::Burst);
+    }
+
+    /// update_params recalculates capacity when curve rate changes.
+    /// Verifying overridden devices get correct capacity even without
+    /// mode evaluation (important when devices connect/disconnect and
+    /// the curve rate shifts).
+    #[test]
+    fn update_params_tracks_capacity_changes() {
+        let mut b = full_bucket(6_250_000, 300);
+        let cap_high = b.capacity();
+
+        // Curve rate drops to 1 Mbps
+        b.update_params(125_000, 300, 2, 300_000);
+        let cap_low = b.capacity();
+        assert!(cap_low < cap_high, "capacity should shrink with lower curve rate");
+        assert_eq!(cap_low, 125_000 * 300);
+
+        // Tokens clamped to new lower capacity
+        assert!(b.tokens() <= cap_low);
+
+        // Curve rate rises back
+        b.update_params(6_250_000, 300, 2, 300_000);
+        assert_eq!(b.capacity(), cap_high, "capacity should restore");
+        // Tokens don't magically increase (were clamped down)
+        assert!(b.tokens() <= cap_low, "tokens should not grow on capacity increase");
+    }
+
+    /// Combined update() behaves identically to update_params + evaluate_mode.
+    #[test]
+    fn update_equals_params_plus_evaluate() {
+        let mut b1 = full_bucket(6_250_000, 300);
+        let mut b2 = full_bucket(6_250_000, 300);
+
+        b1.drain(b1.tokens());
+        b2.drain(b2.tokens());
+
+        b1.update(6_250_000, 300, 2, 300_000);
+
+        b2.update_params(6_250_000, 300, 2, 300_000);
+        b2.evaluate_mode();
+
+        assert_eq!(b1.mode(), b2.mode());
+        assert_eq!(b1.tokens(), b2.tokens());
+        assert_eq!(b1.capacity(), b2.capacity());
+        assert_eq!(b1.burst_ceil_kbit(), b2.burst_ceil_kbit());
+        assert_eq!(b1.thresholds(), b2.thresholds());
     }
 }

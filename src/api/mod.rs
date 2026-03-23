@@ -28,6 +28,10 @@ pub fn router(engine: Engine) -> Router {
             "/api/v1/device/{mac}/bucket",
             post(handlers::handle_set_bucket),
         )
+        .route(
+            "/api/v1/device/{mac}/mode",
+            post(handlers::handle_set_device_mode),
+        )
         .route("/ws", get(websocket::handle_ws))
         .fallback(crate::web::static_handler)
         .with_state(engine)

@@ -7,6 +7,10 @@ pub enum DeviceMode {
     Burst,
     Sustained,
     Turbo,
+    /// User override: always shaped at fair-share rate, bucket never refills.
+    Throttled,
+    /// User override: shaped to near-zero, effectively blocked.
+    Disabled,
 }
 
 impl std::fmt::Display for DeviceMode {
@@ -15,6 +19,8 @@ impl std::fmt::Display for DeviceMode {
             DeviceMode::Burst => write!(f, "burst"),
             DeviceMode::Sustained => write!(f, "sustained"),
             DeviceMode::Turbo => write!(f, "turbo"),
+            DeviceMode::Throttled => write!(f, "throttled"),
+            DeviceMode::Disabled => write!(f, "disabled"),
         }
     }
 }
@@ -204,6 +210,24 @@ pub struct BucketSetRequest {
     pub tokens_mb: i64,
 }
 
+/// Valid mode override values for the device mode API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DeviceModeOverride {
+    /// Return to automatic burst/sustained behavior.
+    Normal,
+    /// Always shaped at fair-share rate, bucket never refills.
+    Throttled,
+    /// Shaped to near-zero, effectively blocked.
+    Disabled,
+}
+
+/// Request body for POST /api/v1/device/{mac}/mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceModeRequest {
+    pub mode: DeviceModeOverride,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,15 +237,23 @@ mod tests {
         assert_eq!(DeviceMode::Burst.to_string(), "burst");
         assert_eq!(DeviceMode::Sustained.to_string(), "sustained");
         assert_eq!(DeviceMode::Turbo.to_string(), "turbo");
+        assert_eq!(DeviceMode::Throttled.to_string(), "throttled");
+        assert_eq!(DeviceMode::Disabled.to_string(), "disabled");
     }
 
     #[test]
     fn device_mode_serde_roundtrip() {
-        let mode = DeviceMode::Burst;
-        let json = serde_json::to_string(&mode).unwrap();
-        assert_eq!(json, "\"burst\"");
-        let back: DeviceMode = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, mode);
+        for mode in [
+            DeviceMode::Burst,
+            DeviceMode::Sustained,
+            DeviceMode::Turbo,
+            DeviceMode::Throttled,
+            DeviceMode::Disabled,
+        ] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let back: DeviceMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, mode);
+        }
     }
 
     #[test]
