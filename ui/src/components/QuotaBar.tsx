@@ -146,7 +146,7 @@ export default function QuotaBar({ quota, dish, onMessage }: Props) {
           size={["100%", 10]}
         />
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: "#555" }}>
-          <span>Down: {formatBytes(quota.used_download)} / Up: {formatBytes(quota.used_upload)}</span>
+          <span>Up: {formatBytes(quota.used_upload)} / Down: {formatBytes(quota.used_download)}</span>
           <span>{quota.billing_month}</span>
         </div>
       </div>

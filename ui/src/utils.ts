@@ -49,8 +49,8 @@ export function formatRateRound(bps: number | null | undefined): string {
   return Math.round(bps / 1000000000) + " Gb/s";
 }
 
-/** Format down/up bps pair into a compact string with shared unit: "▼4.0 / ▲1.0 Mb/s" */
-export function formatLimitPair(downBps: number, upBps: number): string {
+/** Format up/down bps pair into a compact string with shared unit: "▲1.0 / ▼4.0 Mb/s" */
+export function formatLimitPair(upBps: number, downBps: number): string {
   const maxVal = Math.max(downBps, upBps);
   let unit: string;
   let div: number;
@@ -68,7 +68,7 @@ export function formatLimitPair(downBps: number, upBps: number): string {
     const n = v / div;
     return n < 10 ? n.toFixed(1) : String(Math.round(n));
   };
-  return `\u{25BC}${fmt(downBps)} / \u{25B2}${fmt(upBps)} ${unit}`;
+  return `\u{25B2}${fmt(upBps)} / \u{25BC}${fmt(downBps)} ${unit}`;
 }
 
 // UI uses "throttled" instead of backend's "sustained" for user clarity
