@@ -4,9 +4,10 @@ pub mod curve;
 
 use crate::config::Config;
 use crate::model::{
-    CurveState, DeviceSnapshot, DishStatus, QuotaState, StateSnapshot, ThroughputSample,
-    ThroughputState, TurboState, Warning,
+    CurveState, DeviceMode, DeviceSnapshot, DishStatus, QuotaState, StateSnapshot,
+    ThroughputSample, ThroughputState, TurboState, Warning,
 };
+use serde::{Deserialize, Serialize};
 use crate::netctl::counters;
 use crate::netctl::devices::{self, StaticDeviceEntry};
 use crate::netctl::nftables::NFTController;
@@ -22,6 +23,17 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
 use tracing::{error, info, warn};
+
+/// Device state persisted across restarts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedDeviceState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    override_mode: Option<DeviceMode>,
+    #[serde(default)]
+    bucket_tokens: i64,
+    #[serde(default)]
+    turbo: TurboState,
+}
 
 const THROUGHPUT_WINDOW_SEC: i32 = 30;
 const THROUGHPUT_HISTORY_SAMPLES: usize = 120;
@@ -721,6 +733,29 @@ impl Engine {
                     dev.cycle_bytes = cb;
                 }
 
+                // Restore persisted device state (overrides, bucket, turbo)
+                if let Ok(Some(state_json)) = inner.store.load_device_state(&d.mac) {
+                    if let Ok(state) = serde_json::from_slice::<PersistedDeviceState>(&state_json) {
+                        dev.override_mode = state.override_mode;
+                        if state.bucket_tokens > 0 {
+                            dev.bucket.set_tokens(state.bucket_tokens);
+                        }
+                        // Restore turbo only if it hasn't expired
+                        if state.turbo.active {
+                            if let Some(expires) = state.turbo.expires_at {
+                                if expires > Utc::now() {
+                                    dev.turbo = state.turbo;
+                                    dev.bucket.set_mode(DeviceMode::Turbo);
+                                }
+                            }
+                        }
+                        info!(
+                            "engine: restored state for {} (override={:?}, bucket={})",
+                            d.hostname, dev.override_mode, dev.bucket.tokens()
+                        );
+                    }
+                }
+
                 // Ensure HTB trees exist (may have been reset by network restart)
                 let rate_kbit = inner.curve.rate(remaining);
                 if let Err(e) = inner.tc.ensure_htb(rate_kbit) {
@@ -809,6 +844,17 @@ impl Engine {
         for (mac, dev) in &inner.devices {
             if let Err(e) = inner.store.save_device_cycle_bytes(mac, dev.cycle_bytes) {
                 error!("engine: persist device {mac}: {e}");
+            }
+            // Persist device runtime state (overrides, bucket, turbo)
+            let state = PersistedDeviceState {
+                override_mode: dev.override_mode,
+                bucket_tokens: dev.bucket.tokens(),
+                turbo: dev.turbo.clone(),
+            };
+            if let Ok(json) = serde_json::to_vec(&state) {
+                if let Err(e) = inner.store.save_device_state(mac, &json) {
+                    error!("engine: persist device state {mac}: {e}");
+                }
             }
         }
     }

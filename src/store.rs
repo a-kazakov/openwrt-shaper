@@ -130,6 +130,46 @@ impl Store {
         Ok(())
     }
 
+    /// Persist a device's runtime state (mode overrides, bucket, turbo).
+    pub fn save_device_state(&self, mac: &str, state_json: &[u8]) -> Result<(), String> {
+        let key = format!("{mac}_state");
+        let write_txn = self
+            .db
+            .begin_write()
+            .map_err(|e| format!("begin write: {e}"))?;
+        {
+            let mut table = write_txn
+                .open_table(DEVICES_TABLE)
+                .map_err(|e| format!("open devices: {e}"))?;
+            table
+                .insert(key.as_str(), state_json)
+                .map_err(|e| format!("put device state: {e}"))?;
+        }
+        write_txn
+            .commit()
+            .map_err(|e| format!("commit device state: {e}"))?;
+        Ok(())
+    }
+
+    /// Read a device's persisted runtime state.
+    pub fn load_device_state(&self, mac: &str) -> Result<Option<Vec<u8>>, String> {
+        let key = format!("{mac}_state");
+        let read_txn = self
+            .db
+            .begin_read()
+            .map_err(|e| format!("begin read: {e}"))?;
+        let table = read_txn
+            .open_table(DEVICES_TABLE)
+            .map_err(|e| format!("open devices: {e}"))?;
+
+        let data = table
+            .get(key.as_str())
+            .map_err(|e| format!("get device state: {e}"))?
+            .map(|v| v.value().to_vec());
+
+        Ok(data)
+    }
+
     /// Read a device's persisted cycle bytes.
     pub fn load_device_cycle_bytes(&self, mac: &str) -> Result<i64, String> {
         let key = format!("{mac}_cycle");
@@ -415,5 +455,35 @@ mod tests {
         let (s, _dir) = test_store();
         let got = s.load_config().unwrap();
         assert!(got.is_none());
+    }
+
+    #[test]
+    fn device_state_round_trip() {
+        let (s, _dir) = test_store();
+
+        let mac = "aa:bb:cc:dd:ee:ff";
+        let state = br#"{"override_mode":"throttled","bucket_tokens":12345}"#;
+        s.save_device_state(mac, state).unwrap();
+
+        let got = s.load_device_state(mac).unwrap().unwrap();
+        assert_eq!(got, state);
+
+        // Unknown device
+        let got = s.load_device_state("00:00:00:00:00:00").unwrap();
+        assert!(got.is_none());
+    }
+
+    #[test]
+    fn clear_devices_includes_state() {
+        let (s, _dir) = test_store();
+
+        let mac = "aa:bb:cc:dd:ee:ff";
+        s.save_device_cycle_bytes(mac, 1000).unwrap();
+        s.save_device_state(mac, b"{}").unwrap();
+
+        s.clear_devices().unwrap();
+
+        assert_eq!(s.load_device_cycle_bytes(mac).unwrap(), 0);
+        assert!(s.load_device_state(mac).unwrap().is_none());
     }
 }
