@@ -168,8 +168,6 @@ impl DishClient {
             obstructed,
             fraction_obstructed: fraction_obstructed as f64,
             software_version,
-            usage_down: 0,
-            usage_up: 0,
         };
 
         *self.status.write().unwrap() = Some(status);
@@ -193,8 +191,6 @@ impl DishClient {
                 obstructed: false,
                 fraction_obstructed: 0.0,
                 software_version: String::new(),
-                usage_down: 0,
-                usage_up: 0,
             });
         }
     }

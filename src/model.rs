@@ -125,8 +125,6 @@ pub struct DishStatus {
     pub fraction_obstructed: f64,
     pub software_version: String,
     pub reachable: bool,
-    pub usage_down: i64,
-    pub usage_up: i64,
 }
 
 /// A persistent warning displayed in the UI until resolved.

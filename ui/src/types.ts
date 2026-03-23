@@ -79,8 +79,6 @@ export interface DishStatus {
   fraction_obstructed: number;
   software_version: string;
   reachable: boolean;
-  usage_down: number;
-  usage_up: number;
 }
 
 /** Matches Rust config.rs Values */
@@ -106,7 +104,6 @@ export interface ConfigValues {
   device_scan_interval_sec: number;
   overage_cost_per_gb: number;
   plan_cost_monthly: number;
-  usage_mismatch_threshold_mb: number;
   resolved_wan?: string;
   resolved_lan?: string;
 }

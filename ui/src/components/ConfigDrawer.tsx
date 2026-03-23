@@ -470,17 +470,6 @@ export default function ConfigDrawer({ open, onClose, onSaved }: Props) {
               </Form.Item>
 
               <Divider orientation="left" style={{ color: "#666", fontSize: 12 }}>
-                Alerts
-              </Divider>
-              <Form.Item
-                label="Usage Mismatch Threshold (MB)"
-                name="usage_mismatch_threshold_mb"
-                tooltip="Show a warning when the gap between Starlink-reported and router-tracked usage exceeds this value. Set to 0 to disable."
-              >
-                <InputNumber min={0} max={10000} style={{ width: "100%" }} />
-              </Form.Item>
-
-              <Divider orientation="left" style={{ color: "#666", fontSize: 12 }}>
                 Network
               </Divider>
               <Form.Item
