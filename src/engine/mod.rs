@@ -49,6 +49,7 @@ struct DeviceState {
     cycle_bytes: i64,
     last_mode: crate::model::DeviceMode,
     last_burst_ceil: i32,
+    last_fair_share: i32,
 }
 
 /// Shared engine state behind Arc<RwLock<>>.
@@ -388,17 +389,18 @@ impl Engine {
             inner.used_download += wan_download_delta;
         }
 
+        // Update bucket capacity and thresholds for ALL devices (including overridden),
+        // but only evaluate mode transitions for non-overridden devices.
         for dev in inner.devices.values_mut() {
-            // Skip bucket hysteresis for user-overridden devices
-            if dev.override_mode.is_some() {
-                continue;
-            }
-            dev.bucket.update(
+            dev.bucket.update_params(
                 curve_rate_bps,
                 snap.bucket_duration_sec,
                 snap.tick_interval_sec,
                 snap.max_burst_kbit,
             );
+            if dev.override_mode.is_none() {
+                dev.bucket.evaluate_mode();
+            }
         }
 
         // Apply mode changes to tc before refill to prevent burst with fresh tokens
@@ -429,14 +431,16 @@ impl Engine {
                 dev.bucket.mode()
             };
 
-            // Only update tc if mode or burst ceil changed meaningfully
+            // Re-apply tc shaping when mode, burst ceil (>1%), or fair share changed.
+            // Detects device connect/disconnect (fair_share changes) and external resets.
             let mode_changed = effective_mode != dev.last_mode;
             let ceil_changed = dev.last_burst_ceil > 0
                 && (burst_ceil - dev.last_burst_ceil).unsigned_abs() * 100
                     / dev.last_burst_ceil.unsigned_abs().max(1)
-                    > 5;
+                    > 1;
+            let share_changed = fair_share_kbit != dev.last_fair_share;
 
-            if mode_changed || ceil_changed {
+            if mode_changed || ceil_changed || share_changed {
                 tc_updates.push(TcUpdate {
                     slot: dev.slot,
                     mode: effective_mode,
@@ -445,6 +449,7 @@ impl Engine {
                 });
                 dev.last_mode = effective_mode;
                 dev.last_burst_ceil = burst_ceil;
+                dev.last_fair_share = fair_share_kbit;
             }
         }
 
@@ -464,14 +469,15 @@ impl Engine {
         // to hungrier devices, ensuring no tokens are wasted.
         // Throttled and disabled devices do not receive refill; their actual consumption
         // is subtracted from the budget so normal devices get the leftover.
-        let overridden_bytes: i64 = inner
+        // Turbo devices are NOT subtracted — they participate in normal refill.
+        let throttled_disabled_bytes: i64 = inner
             .devices
             .values()
-            .filter(|dev| dev.override_mode.is_some())
+            .filter(|dev| dev.override_mode.is_some() && !dev.turbo.active)
             .map(|dev| dev.delta_up + dev.delta_down)
             .sum();
         let total_budget =
-            (curve_rate_bps * snap.tick_interval_sec as i64 - overridden_bytes).max(0);
+            (curve_rate_bps * snap.tick_interval_sec as i64 - throttled_disabled_bytes).max(0);
         let mut spaces: Vec<(String, i64)> = inner
             .devices
             .iter()
@@ -623,6 +629,7 @@ impl Engine {
             dev.prev_counter_down = 0;
             dev.last_mode = crate::model::DeviceMode::Burst;
             dev.last_burst_ceil = 0;
+            dev.last_fair_share = 0;
         }
 
         // Reset WAN sysfs counters (new interface has different counters)
@@ -706,6 +713,7 @@ impl Engine {
                     // and applies ratio-split rates via set_device_mode
                     last_mode: crate::model::DeviceMode::Burst,
                     last_burst_ceil: 0,
+                    last_fair_share: 0,
                 };
 
                 // Load persisted cycle bytes
@@ -831,16 +839,17 @@ impl Engine {
         };
 
         // Compute per-device refill rate (excludes overridden devices).
-        // Subtract overridden devices' last-tick consumption from the budget.
+        // Subtract throttled/disabled devices' last-tick consumption from the budget.
+        // Turbo devices are NOT subtracted — they participate in normal refill.
         let snap_cfg = inner.cfg.snapshot();
         let curve_rate_bps = inner.curve.rate_bytes_per_sec(remaining);
-        let overridden_bps: i64 = inner
+        let throttled_disabled_bps: i64 = inner
             .devices
             .values()
-            .filter(|d| d.override_mode.is_some())
+            .filter(|d| d.override_mode.is_some() && !d.turbo.active)
             .map(|d| (d.delta_up + d.delta_down) * 8 / snap_cfg.tick_interval_sec as i64)
             .sum();
-        let effective_rate_bps = (curve_rate_bps * 8 - overridden_bps).max(0);
+        let effective_rate_bps = (curve_rate_bps * 8 - throttled_disabled_bps).max(0);
         let non_full_count = inner
             .devices
             .values()

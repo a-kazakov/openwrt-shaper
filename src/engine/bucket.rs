@@ -29,12 +29,12 @@ impl DeviceBucket {
     }
 
     /// Recalculate capacity, burst ceiling, and hysteresis thresholds.
+    /// Called for ALL devices every tick (including overridden) so that
+    /// capacity and thresholds stay current when devices join/leave.
     ///
-    /// Hysteresis creates a dead zone between shape_at and unshape_at to prevent
-    /// mode flapping. shape_at = bytes drained in one tick at max burst speed
-    /// (capped at 25% capacity to prevent oscillation in small buckets).
-    /// unshape_at = 3× shape_at, giving a wide dead zone for stability.
-    pub fn update(
+    /// Does NOT evaluate mode transitions — call `evaluate_mode` separately
+    /// for devices that should participate in hysteresis.
+    pub fn update_params(
         &mut self,
         curve_rate_bytes_per_sec: i64,
         duration_sec: i32,
@@ -69,17 +69,33 @@ impl DeviceBucket {
         if self.burst_ceil_kbit < BURST_CEIL_FLOOR_KBIT {
             self.burst_ceil_kbit = BURST_CEIL_FLOOR_KBIT;
         }
-        let shape_at = self.shape_at;
-        let unshape_at = self.unshape_at;
+    }
 
+    /// Evaluate hysteresis mode transitions based on current token level.
+    /// Only call for devices not under a user override (turbo/throttled/disabled
+    /// are managed externally).
+    pub fn evaluate_mode(&mut self) {
         if self.mode == DeviceMode::Turbo {
             return;
         }
-        if self.mode == DeviceMode::Burst && self.tokens < shape_at {
+        if self.mode == DeviceMode::Burst && self.tokens < self.shape_at {
             self.mode = DeviceMode::Sustained;
-        } else if self.mode == DeviceMode::Sustained && self.tokens > unshape_at {
+        } else if self.mode == DeviceMode::Sustained && self.tokens > self.unshape_at {
             self.mode = DeviceMode::Burst;
         }
+    }
+
+    /// Combined update_params + evaluate_mode (convenience for callers
+    /// that always want both, e.g. tests and initial setup).
+    pub fn update(
+        &mut self,
+        curve_rate_bytes_per_sec: i64,
+        duration_sec: i32,
+        tick_sec: i32,
+        max_burst_kbit: i32,
+    ) {
+        self.update_params(curve_rate_bytes_per_sec, duration_sec, tick_sec, max_burst_kbit);
+        self.evaluate_mode();
     }
 
     /// Remove bytes from the bucket. Returns actual drained amount.
