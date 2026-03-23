@@ -71,9 +71,17 @@ export function formatLimitPair(upBps: number, downBps: number): string {
   return `\u{25B2}${fmt(upBps)} / \u{25BC}${fmt(downBps)} ${unit}`;
 }
 
-// UI uses "throttled" instead of backend's "sustained" for user clarity
 export function modeLabel(mode: string): string {
-  return mode === "sustained" ? "throttled" : mode;
+  switch (mode) {
+    case "sustained":
+      return "throttled";
+    case "throttled":
+      return "always throttled";
+    case "disabled":
+      return "disabled";
+    default:
+      return mode;
+  }
 }
 
 export function modeColor(mode: string): string {
@@ -82,6 +90,10 @@ export function modeColor(mode: string): string {
       return colors.chartDown;
     case "sustained":
       return colors.warning;
+    case "throttled":
+      return colors.danger;
+    case "disabled":
+      return colors.textMuted;
     case "turbo":
       return colors.success;
     default:

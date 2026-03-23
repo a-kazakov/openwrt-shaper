@@ -213,11 +213,16 @@ impl TCController {
                 self.set_class(&self.wan_iface, slot, "1:1", up.max(1), up.max(1));
                 self.set_class(&self.lan_iface, slot, "1:3", down.max(1), down.max(1));
             }
-            DeviceMode::Sustained => {
+            DeviceMode::Sustained | DeviceMode::Throttled => {
                 let down = (fair_share_kbit as f64 * down_up_ratio) as i32;
                 let up = fair_share_kbit - down;
                 self.set_class(&self.wan_iface, slot, "1:1", up.max(1), up.max(1));
                 self.set_class(&self.lan_iface, slot, "1:3", down.max(1), down.max(1));
+            }
+            DeviceMode::Disabled => {
+                // Shape to minimum: effectively blocks the device
+                self.set_class(&self.wan_iface, slot, "1:1", 1, 1);
+                self.set_class(&self.lan_iface, slot, "1:3", 1, 1);
             }
         }
     }

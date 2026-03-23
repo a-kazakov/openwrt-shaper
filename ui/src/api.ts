@@ -88,3 +88,22 @@ export function cancelTurbo(mac: string): Promise<StateSnapshot> {
     method: "DELETE",
   });
 }
+
+export function setDeviceMode(
+  mac: string,
+  mode: "throttled" | "disabled" | "normal",
+): Promise<StateSnapshot> {
+  return request(`/api/v1/device/${encodeURIComponent(mac)}/mode`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+}
+
+export function refillBucket(mac: string, tokensMb: number): Promise<StateSnapshot> {
+  return request(`/api/v1/device/${encodeURIComponent(mac)}/bucket`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tokens_mb: tokensMb }),
+  });
+}

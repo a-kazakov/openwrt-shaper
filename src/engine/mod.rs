@@ -37,6 +37,8 @@ struct DeviceState {
     mark: i32,
     bucket: DeviceBucket,
     turbo: TurboState,
+    /// User-set mode override: Throttled or Disabled. None = automatic (bucket-driven).
+    override_mode: Option<crate::model::DeviceMode>,
     fair_share_kbit: i32,
     prev_counter_up: i64,
     prev_counter_down: i64,
@@ -287,10 +289,15 @@ impl Engine {
         // Read all nftables counters
         let counters_result = counters::read_all_counters(inner.nft.table_name());
 
-        // Count active devices for fair share
+        // Count active devices for fair share (exclude disabled devices)
         let mut active_devices = 0i32;
         for dev in inner.devices.values() {
-            if !dev.bucket.is_full() || dev.turbo.active {
+            if dev.override_mode == Some(crate::model::DeviceMode::Disabled) {
+                continue;
+            }
+            if !dev.bucket.is_full() || dev.turbo.active
+                || dev.override_mode == Some(crate::model::DeviceMode::Throttled)
+            {
                 active_devices += 1;
             }
         }
@@ -350,7 +357,10 @@ impl Engine {
             tick_up_total += dev.delta_up;
             tick_down_total += dev.delta_down;
 
-            dev.bucket.drain(delta);
+            // Disabled devices don't drain their bucket (they're shaped to near-zero)
+            if dev.override_mode != Some(crate::model::DeviceMode::Disabled) {
+                dev.bucket.drain(delta);
+            }
 
             dev.session_up += dev.delta_up;
             dev.session_down += dev.delta_down;
@@ -379,6 +389,10 @@ impl Engine {
         }
 
         for dev in inner.devices.values_mut() {
+            // Skip bucket hysteresis for user-overridden devices
+            if dev.override_mode.is_some() {
+                continue;
+            }
             dev.bucket.update(
                 curve_rate_bps,
                 snap.bucket_duration_sec,
@@ -404,24 +418,19 @@ impl Engine {
 
         for dev in inner.devices.values_mut() {
             dev.fair_share_kbit = fair_share_kbit;
-            let mode = dev.bucket.mode();
             let burst_ceil = dev.bucket.burst_ceil_kbit();
 
-            if dev.turbo.active {
-                if dev.last_mode != crate::model::DeviceMode::Turbo {
-                    tc_updates.push(TcUpdate {
-                        slot: dev.slot,
-                        mode: crate::model::DeviceMode::Turbo,
-                        fair_share: fair_share_kbit,
-                        burst_ceil: 0,
-                    });
-                    dev.last_mode = crate::model::DeviceMode::Turbo;
-                }
-                continue;
-            }
+            // Determine effective mode: override > turbo > bucket hysteresis
+            let effective_mode = if dev.turbo.active {
+                crate::model::DeviceMode::Turbo
+            } else if let Some(om) = dev.override_mode {
+                om
+            } else {
+                dev.bucket.mode()
+            };
 
             // Only update tc if mode or burst ceil changed meaningfully
-            let mode_changed = mode != dev.last_mode;
+            let mode_changed = effective_mode != dev.last_mode;
             let ceil_changed = dev.last_burst_ceil > 0
                 && (burst_ceil - dev.last_burst_ceil).unsigned_abs() * 100
                     / dev.last_burst_ceil.unsigned_abs().max(1)
@@ -430,11 +439,11 @@ impl Engine {
             if mode_changed || ceil_changed {
                 tc_updates.push(TcUpdate {
                     slot: dev.slot,
-                    mode,
+                    mode: effective_mode,
                     fair_share: fair_share_kbit,
                     burst_ceil,
                 });
-                dev.last_mode = mode;
+                dev.last_mode = effective_mode;
                 dev.last_burst_ceil = burst_ceil;
             }
         }
@@ -453,11 +462,12 @@ impl Engine {
         // Water-filling refill: distribute budget fairly without exceeding curve rate.
         // Devices closest to full get served first so their overflow is redistributed
         // to hungrier devices, ensuring no tokens are wasted.
+        // Throttled and disabled devices do not receive refill.
         let total_budget = curve_rate_bps * snap.tick_interval_sec as i64;
         let mut spaces: Vec<(String, i64)> = inner
             .devices
             .iter()
-            .filter(|(_, dev)| !dev.bucket.is_full())
+            .filter(|(_, dev)| !dev.bucket.is_full() && dev.override_mode.is_none())
             .map(|(mac, dev)| (mac.clone(), dev.bucket.space_remaining()))
             .collect();
 
@@ -675,6 +685,7 @@ impl Engine {
                     mark,
                     bucket,
                     turbo: TurboState::default(),
+                    override_mode: None,
                     fair_share_kbit: 0,
                     prev_counter_up: 0,
                     prev_counter_down: 0,
@@ -811,12 +822,12 @@ impl Engine {
             0
         };
 
-        // Compute per-device refill rate
+        // Compute per-device refill rate (excludes overridden devices)
         let curve_rate_bps = inner.curve.rate_bytes_per_sec(remaining);
         let non_full_count = inner
             .devices
             .values()
-            .filter(|d| !d.bucket.is_full())
+            .filter(|d| !d.bucket.is_full() && d.override_mode.is_none())
             .count()
             .max(1) as i64;
         let refill_bps_per_device = curve_rate_bps * 8 / non_full_count;
@@ -831,18 +842,27 @@ impl Engine {
                 0
             };
 
-            // Refill rate: if this device's bucket is full, it gets 0
-            let bucket_refill_bps = if dev.bucket.is_full() {
+            // Refill rate: overridden or full devices get 0
+            let bucket_refill_bps = if dev.override_mode.is_some() || dev.bucket.is_full() {
                 0
             } else {
                 refill_bps_per_device
+            };
+
+            // Determine effective mode: override > turbo > bucket
+            let effective_mode = if dev.turbo.active {
+                crate::model::DeviceMode::Turbo
+            } else if let Some(om) = dev.override_mode {
+                om
+            } else {
+                dev.bucket.mode()
             };
 
             let mut ds = DeviceSnapshot {
                 mac: dev.mac.clone(),
                 ip: dev.ip.clone(),
                 hostname: dev.hostname.clone(),
-                mode: dev.bucket.mode(),
+                mode: effective_mode,
                 bucket_bytes: bucket_tokens,
                 bucket_capacity: bucket_cap,
                 bucket_pct,
@@ -863,31 +883,34 @@ impl Engine {
                 bucket_unshape_at: dev.bucket.thresholds().1,
             };
 
-            // Compute actual tc ceil values per mode
+            // Compute actual tc ceil values per effective mode
             let burst_ceil = dev.bucket.burst_ceil_kbit();
             let fair_share = dev.fair_share_kbit;
-            if dev.turbo.active {
-                ds.mode = crate::model::DeviceMode::Turbo;
-                ds.shaped_down_kbit = None;
-                ds.shaped_up_kbit = None;
-                if let Some(expires) = dev.turbo.expires_at {
+            if let Some(expires) = dev.turbo.expires_at {
+                if dev.turbo.active {
                     ds.turbo_expires = Some(expires.timestamp());
                 }
-            } else {
-                match dev.bucket.mode() {
-                    crate::model::DeviceMode::Burst => {
-                        let down_ceil = (burst_ceil as f64 * snap.down_up_ratio) as i32;
-                        let up_ceil = burst_ceil - down_ceil;
-                        ds.shaped_down_kbit = Some(down_ceil.max(1));
-                        ds.shaped_up_kbit = Some(up_ceil.max(1));
-                    }
-                    crate::model::DeviceMode::Sustained => {
-                        let down_ceil = (fair_share as f64 * snap.down_up_ratio) as i32;
-                        let up_ceil = fair_share - down_ceil;
-                        ds.shaped_down_kbit = Some(down_ceil.max(1));
-                        ds.shaped_up_kbit = Some(up_ceil.max(1));
-                    }
-                    crate::model::DeviceMode::Turbo => {}
+            }
+            match effective_mode {
+                crate::model::DeviceMode::Turbo => {
+                    ds.shaped_down_kbit = None;
+                    ds.shaped_up_kbit = None;
+                }
+                crate::model::DeviceMode::Burst => {
+                    let down_ceil = (burst_ceil as f64 * snap.down_up_ratio) as i32;
+                    let up_ceil = burst_ceil - down_ceil;
+                    ds.shaped_down_kbit = Some(down_ceil.max(1));
+                    ds.shaped_up_kbit = Some(up_ceil.max(1));
+                }
+                crate::model::DeviceMode::Sustained | crate::model::DeviceMode::Throttled => {
+                    let down_ceil = (fair_share as f64 * snap.down_up_ratio) as i32;
+                    let up_ceil = fair_share - down_ceil;
+                    ds.shaped_down_kbit = Some(down_ceil.max(1));
+                    ds.shaped_up_kbit = Some(up_ceil.max(1));
+                }
+                crate::model::DeviceMode::Disabled => {
+                    ds.shaped_down_kbit = Some(1);
+                    ds.shaped_up_kbit = Some(1);
                 }
             }
             devices.push(ds);
@@ -989,7 +1012,7 @@ impl Engine {
         let _ = inner.store.clear_devices();
     }
 
-    /// Enable turbo mode for a device.
+    /// Enable turbo mode for a device. Clears any override.
     pub fn set_device_turbo(
         &self,
         mac: &str,
@@ -1002,6 +1025,7 @@ impl Engine {
             .ok_or_else(|| format!("device {mac} not found"))?;
 
         let now = Utc::now();
+        dev.override_mode = None;
         dev.turbo = TurboState {
             active: true,
             started_at: Some(now),
@@ -1022,6 +1046,40 @@ impl Engine {
 
         dev.turbo.active = false;
         dev.bucket.set_mode(crate::model::DeviceMode::Burst);
+        Ok(())
+    }
+
+    /// Set a device mode override. Normal clears the override and returns
+    /// to automatic burst/sustained behavior.
+    pub fn set_device_mode(
+        &self,
+        mac: &str,
+        mode: crate::model::DeviceModeOverride,
+    ) -> Result<(), String> {
+        let mut inner = self.inner.write().unwrap();
+        let dev = inner
+            .devices
+            .get_mut(mac)
+            .ok_or_else(|| format!("device {mac} not found"))?;
+
+        match mode {
+            crate::model::DeviceModeOverride::Throttled => {
+                dev.turbo.active = false;
+                dev.override_mode = Some(crate::model::DeviceMode::Throttled);
+                info!("engine: device {} set to throttled", dev.hostname);
+            }
+            crate::model::DeviceModeOverride::Disabled => {
+                dev.turbo.active = false;
+                dev.override_mode = Some(crate::model::DeviceMode::Disabled);
+                info!("engine: device {} set to disabled", dev.hostname);
+            }
+            crate::model::DeviceModeOverride::Normal => {
+                dev.turbo.active = false;
+                dev.override_mode = None;
+                dev.bucket.set_mode(crate::model::DeviceMode::Burst);
+                info!("engine: device {} set to normal", dev.hostname);
+            }
+        }
         Ok(())
     }
 

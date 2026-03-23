@@ -1,5 +1,5 @@
 use crate::engine::Engine;
-use crate::model::{BucketSetRequest, QuotaAdjustRequest, SyncRequest, TurboRequest};
+use crate::model::{BucketSetRequest, DeviceModeRequest, QuotaAdjustRequest, SyncRequest, TurboRequest};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -130,6 +130,18 @@ pub async fn handle_cancel_turbo(
 ) -> AppResult {
     let mac = mac.to_lowercase();
     match engine.cancel_device_turbo(&mac) {
+        Ok(()) => snapshot_json(&engine),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({"error": e}))),
+    }
+}
+
+pub async fn handle_set_device_mode(
+    State(engine): State<Engine>,
+    Path(mac): Path<String>,
+    Json(req): Json<DeviceModeRequest>,
+) -> AppResult {
+    let mac = mac.to_lowercase();
+    match engine.set_device_mode(&mac, req.mode) {
         Ok(()) => snapshot_json(&engine),
         Err(e) => (StatusCode::NOT_FOUND, Json(json!({"error": e}))),
     }
