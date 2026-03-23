@@ -224,13 +224,39 @@ impl TCController {
 
     fn set_class(&self, iface: &str, slot: i32, parent: &str, rate_kbit: i32, ceil_kbit: i32) {
         let class_id = format!("1:{}", 10 + slot);
-        let _ = self.tc(&[
-            "class", "change", "dev", iface, "parent", parent, "classid", &class_id, "htb",
-            "rate",
-            &format!("{rate_kbit}kbit"),
-            "ceil",
-            &format!("{ceil_kbit}kbit"),
-        ]);
+        let rate = format!("{rate_kbit}kbit");
+        let ceil = format!("{ceil_kbit}kbit");
+
+        // Try "change" first; if the class was lost (e.g., qdisc reset),
+        // fall back to "add" so the device doesn't run unshaped.
+        if self
+            .tc(&[
+                "class", "change", "dev", iface, "parent", parent, "classid", &class_id, "htb",
+                "rate", &rate, "ceil", &ceil,
+            ])
+            .is_err()
+        {
+            warn!(
+                "tc class change failed for {class_id} on {iface}, re-adding"
+            );
+            if let Err(e) = self.tc(&[
+                "class", "add", "dev", iface, "parent", parent, "classid", &class_id, "htb",
+                "rate", &rate, "ceil", &ceil,
+            ]) {
+                warn!("tc class add also failed for {class_id} on {iface}: {e}");
+                return;
+            }
+            // Re-add fq_codel and filter for the recreated class
+            let handle = format!("{}:", 10 + slot);
+            let mark = (100 + slot).to_string();
+            let _ = self.tc(&[
+                "qdisc", "add", "dev", iface, "parent", &class_id, "handle", &handle, "fq_codel",
+            ]);
+            let _ = self.tc(&[
+                "filter", "add", "dev", iface, "parent", "1:", "protocol", "ip", "prio", "1",
+                "handle", &mark, "fw", "classid", &class_id,
+            ]);
+        }
     }
 
     /// Remove all tc qdiscs from both interfaces.
