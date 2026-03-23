@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from "react";
-import { Button, Card, Dropdown, Spin } from "antd";
+import { useState, useRef } from "react";
+import { Card, Dropdown } from "antd";
 import type { MenuProps } from "antd";
-import { ThunderboltOutlined, LoadingOutlined } from "@ant-design/icons";
 import type { DeviceSnapshot } from "../types";
 import { formatRate, formatDuration, formatMB, formatBytesRound, formatRateRound, formatLimitPair, modeLabel, modeColor } from "../utils";
 import { colors } from "../theme";
-import { enableTurbo, cancelTurbo } from "../api";
+import { enableTurbo, cancelTurbo, setDeviceMode, refillBucket } from "../api";
 
 interface Props {
   devices: DeviceSnapshot[];
@@ -18,10 +17,14 @@ function bucketColor(pct: number): string {
   return colors.success;
 }
 
-/** Compute bucket status from the actual byte-level change between snapshots.
- *  `deltaBps` is (current_bucket_bytes - prev_bucket_bytes) * 8 / tick_seconds,
- *  reflecting the true net change after both drain and refill within the tick. */
+/** Compute bucket status from the actual byte-level change between snapshots. */
 function bucketStatus(device: DeviceSnapshot, deltaBps: number | null): { text: string; color: string } | null {
+  if (device.mode === "disabled") {
+    return { text: "Disabled", color: colors.textMuted };
+  }
+  if (device.mode === "throttled") {
+    return { text: "Always throttled", color: colors.danger };
+  }
   if (device.bucket_pct >= 100) {
     return { text: "Full", color: colors.success };
   }
@@ -48,10 +51,7 @@ function BucketBar({ device }: { device: DeviceSnapshot }) {
   const shapePct = thresholdPct(device.bucket_shape_at, device.bucket_capacity);
   const unshapePct = thresholdPct(device.bucket_unshape_at, device.bucket_capacity);
 
-  // Hysteresis marks: in burst mode show throttle threshold (black),
-  // in sustained mode show burst threshold (white). Dead zone between
-  // the two thresholds prevents mode flapping.
-  const showMark = device.mode !== "turbo";
+  const showMark = device.mode !== "turbo" && device.mode !== "throttled" && device.mode !== "disabled";
   const markPct = device.mode === "burst" ? shapePct : unshapePct;
   const markColor = device.mode === "burst" ? "#000000" : "#ffffff";
 
@@ -113,103 +113,146 @@ const TURBO_DURATIONS: { key: string; label: string; minutes: number }[] = [
   { key: "360", label: "6 hours", minutes: 360 },
 ];
 
-function TurboButton({
+/** Build the mode menu items for a device based on its current state. */
+function buildModeMenu(
+  device: DeviceSnapshot,
+): MenuProps["items"] {
+  const items: MenuProps["items"] = [];
+  const isOverridden = device.mode === "throttled" || device.mode === "disabled";
+
+  if (device.turbo || isOverridden) {
+    items.push({
+      key: "normal",
+      label: device.turbo ? "Cancel Turbo" : "Set Normal",
+    });
+    items.push({ type: "divider" });
+  }
+
+  if (!device.turbo) {
+    items.push({
+      key: "turbo",
+      label: "Enable Turbo",
+      children: TURBO_DURATIONS.map((d) => ({
+        key: `turbo_${d.key}`,
+        label: d.label,
+      })),
+    });
+  }
+
+  if (device.mode !== "throttled") {
+    items.push({
+      key: "throttled",
+      label: "Always Throttled",
+    });
+  }
+
+  if (device.mode !== "disabled") {
+    items.push({
+      key: "disabled",
+      label: "Disable Device",
+    });
+  }
+
+  if (!isOverridden && device.bucket_pct < 100) {
+    items.push({ type: "divider" });
+    items.push({
+      key: "refill",
+      label: "Refill Burst Budget",
+    });
+  }
+
+  return items;
+}
+
+function StatusBadge({
   device,
   onMessage,
 }: {
   device: DeviceSnapshot;
   onMessage: Props["onMessage"];
 }) {
-  const [pending, setPending] = useState<boolean | null>(null);
-  const pendingRef = useRef<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const name = device.hostname || device.mac;
 
-  useEffect(() => {
-    if (pendingRef.current !== null && device.turbo === pendingRef.current) {
-      setPending(null);
-      pendingRef.current = null;
-    }
-  }, [device.turbo]);
-
-  const handleEnable = async (minutes: number) => {
-    setPending(true);
-    pendingRef.current = true;
+  const handleAction = async (action: string, value?: number) => {
+    setLoading(true);
     try {
-      await enableTurbo(device.mac, minutes);
-      onMessage(`Turbo enabled for ${device.hostname || device.mac}`, "success");
+      if (action === "normal") {
+        if (device.turbo) {
+          await cancelTurbo(device.mac);
+          onMessage(`Turbo cancelled for ${name}`, "info");
+        } else {
+          await setDeviceMode(device.mac, "normal");
+          onMessage(`${name} set to normal`, "success");
+        }
+      } else if (action === "turbo" && value) {
+        await enableTurbo(device.mac, value);
+        onMessage(`Turbo enabled for ${name} (${value} min)`, "success");
+      } else if (action === "throttled") {
+        await setDeviceMode(device.mac, "throttled");
+        onMessage(`${name} set to always throttled`, "info");
+      } else if (action === "disabled") {
+        await setDeviceMode(device.mac, "disabled");
+        onMessage(`${name} disabled`, "info");
+      } else if (action === "refill") {
+        const capacityMb = Math.round(device.bucket_capacity / 1000000);
+        await refillBucket(device.mac, capacityMb);
+        onMessage(`Burst budget refilled for ${name}`, "success");
+      }
     } catch (e) {
-      setPending(null);
-      pendingRef.current = null;
       onMessage(
-        `Turbo failed: ${e instanceof Error ? e.message : String(e)}`,
+        `Action failed: ${e instanceof Error ? e.message : String(e)}`,
         "error",
       );
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCancel = async () => {
-    setPending(false);
-    pendingRef.current = false;
-    try {
-      await cancelTurbo(device.mac);
-      onMessage(`Turbo cancelled for ${device.hostname || device.mac}`, "info");
-    } catch (e) {
-      setPending(null);
-      pendingRef.current = null;
-      onMessage(
-        `Turbo failed: ${e instanceof Error ? e.message : String(e)}`,
-        "error",
-      );
-    }
-  };
-
-  const isLoading = pending !== null;
-
-  if (device.turbo) {
-    let remaining = "";
-    if (device.turbo_expires) {
-      const secs = device.turbo_expires - Math.floor(Date.now() / 1000);
-      if (secs > 0) remaining = ` (${formatDuration(secs)})`;
-    }
-    return (
-      <Button
-        type="primary"
-        size="small"
-        danger
-        onClick={handleCancel}
-        disabled={isLoading}
-        icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
-        style={{ height: 26, minWidth: 0, padding: "0 8px", fontSize: 11 }}
-      >
-        Stop{remaining}
-      </Button>
-    );
+  // Turbo countdown text
+  let badgeText = modeLabel(device.mode);
+  if (device.turbo && device.turbo_expires) {
+    const secs = device.turbo_expires - Math.floor(Date.now() / 1000);
+    if (secs > 0) badgeText += ` ${formatDuration(secs)}`;
   }
 
-  const menuItems: MenuProps["items"] = TURBO_DURATIONS.map((d) => ({
-    key: d.key,
-    label: d.label,
-  }));
+  const menuItems = buildModeMenu(device);
 
   return (
     <Dropdown
       menu={{
         items: menuItems,
         onClick: ({ key }) => {
-          const dur = TURBO_DURATIONS.find((d) => d.key === key);
-          if (dur) handleEnable(dur.minutes);
+          if (key.startsWith("turbo_")) {
+            const minutes = parseInt(key.replace("turbo_", ""), 10);
+            handleAction("turbo", minutes);
+          } else {
+            handleAction(key);
+          }
         },
       }}
       trigger={["click"]}
-      disabled={isLoading}
+      disabled={loading}
     >
-      <Button
-        size="small"
-        disabled={isLoading}
-        icon={isLoading ? <Spin indicator={<LoadingOutlined style={{ fontSize: 14 }} />} /> : <ThunderboltOutlined />}
-        style={{ height: 26, minWidth: 0, padding: "0 8px", fontSize: 11 }}
+      <span
+        style={{
+          borderRadius: 4,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          fontSize: 10,
+          letterSpacing: "0.05em",
+          border: `1px solid ${modeColor(device.mode)}`,
+          color: modeColor(device.mode),
+          padding: "2px 8px",
+          lineHeight: "20px",
+          display: "inline-block",
+          cursor: "pointer",
+          opacity: loading ? 0.5 : 1,
+          userSelect: "none",
+        }}
       >
-        Turbo
-      </Button>
+        {badgeText}
+      </span>
     </Dropdown>
   );
 }
@@ -249,25 +292,7 @@ function DeviceCard({
           <div style={{ color: "#fff", fontWeight: 500, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
           <div style={{ color: "#555", fontSize: 11, marginTop: 2 }}>{device.mac}</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <TurboButton device={device} onMessage={onMessage} />
-          <span
-            style={{
-              borderRadius: 4,
-              fontWeight: 600,
-              textTransform: "uppercase",
-              fontSize: 10,
-              letterSpacing: "0.05em",
-              border: `1px solid ${modeColor(device.mode)}`,
-              color: modeColor(device.mode),
-              padding: "2px 8px",
-              lineHeight: "20px",
-              display: "inline-block",
-            }}
-          >
-            {modeLabel(device.mode)}
-          </span>
-        </div>
+        <StatusBadge device={device} onMessage={onMessage} />
       </div>
 
       <div style={{ marginBottom: 8 }}>
@@ -321,13 +346,9 @@ function DeviceCard({
 }
 
 export default function DeviceTable({ devices, onMessage }: Props) {
-  // Track previous bucket_bytes per device to compute actual delta rate.
-  // This avoids the issue where a bucket drained and refilled within the same
-  // tick shows "Draining" even though the level stayed at 100%.
   const prevBytesRef = useRef<Record<string, number>>({});
   const prevTsRef = useRef<number>(0);
 
-  // Compute delta bps per device from actual bucket byte changes
   const deltaBpsMap: Record<string, number | null> = {};
   const now = Date.now() / 1000;
   const elapsed = prevTsRef.current > 0 ? now - prevTsRef.current : 0;
@@ -341,7 +362,6 @@ export default function DeviceTable({ devices, onMessage }: Props) {
     }
   }
 
-  // Update refs after computing deltas
   const nextBytes: Record<string, number> = {};
   for (const d of devices) {
     nextBytes[d.mac] = d.bucket_bytes;
