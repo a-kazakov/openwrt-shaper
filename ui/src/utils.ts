@@ -13,7 +13,7 @@ export function formatBytes(b: number | null | undefined): string {
 export function formatRate(bps: number | null | undefined): string {
   if (bps == null) return "--";
   const abs = Math.abs(bps);
-  if (abs < 1000) return bps + " bps";
+  if (abs < 1000) return Math.round(bps) + " bps";
   if (abs < 1000000) return (bps / 1000).toFixed(1) + " kbps";
   if (abs < 1000000000) return (bps / 1000000).toFixed(1) + " Mbps";
   return (bps / 1000000000).toFixed(2) + " Gbps";
