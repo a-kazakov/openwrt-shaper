@@ -251,7 +251,7 @@ function StatusBadge({
           userSelect: "none",
         }}
       >
-        {badgeText}
+        {badgeText} <span style={{ fontSize: 8, marginLeft: 2 }}>&#9660;</span>
       </span>
     </Dropdown>
   );
